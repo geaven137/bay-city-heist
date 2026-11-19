@@ -203,7 +203,9 @@ export function drawCrosshair(ctx, state) {
   if (!p.onFoot) return;
   const cx = VIEW.width / 2;
   const cy = VIEW.height / 2;
-  const spread = 6 + (p.shootTimer > 0 ? 14 : 0) + (p.moving ? 5 : 0);
+  // Aim assist holds a target: the crosshair tightens and turns yellow,
+  // so the player can feel the magnetism instead of guessing at it.
+  const spread = 6 + (p.shootTimer > 0 ? 14 : 0) + (p.moving ? 5 : 0) - (p.assist ? 2 : 0);
   ctx.strokeStyle = 'rgba(0,0,0,0.7)';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -214,7 +216,7 @@ export function drawCrosshair(ctx, state) {
   ctx.arc(cx, cy, 2, 0, Math.PI * 2);
   ctx.fill();
   if (!p.aiming) return;
-  ctx.strokeStyle = '#f4f6fa';
+  ctx.strokeStyle = p.assist ? PALETTE.neonYellow : '#f4f6fa';
   ctx.lineWidth = 2;
   const arm = 9;
   ctx.beginPath();

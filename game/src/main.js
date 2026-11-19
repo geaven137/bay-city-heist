@@ -72,7 +72,13 @@ function runGame() {
     announce('Playing. Mara Voss has work at the Marina Safehouse.');
   }
 
+  // Mouse-look must turn exactly once per frame, however many fixed
+  // steps that frame catches up on — and a frame with no step must not
+  // drop the movement. Otherwise turn speed depends on frame rate and
+  // fast displays eat half the mouse input.
+  let pendingLook = 0;
   function buildInput() {
+    pendingLook += input.takeLook();
     const move = input.move();
     const p = game.state.player;
     // Third-person aim: the crosshair sits in the middle of the screen,
@@ -80,7 +86,7 @@ function runGame() {
     const aim = p.onFoot ? { x: p.x + Math.cos(p.angle) * 460, y: p.y + Math.sin(p.angle) * 460 } : null;
     return {
       move, run: input.run, handbrake: input.handbrake, aim,
-      look: input.takeLook(), aiming: input.aiming, shoulder: input.shoulder,
+      look: pendingLook, aiming: input.aiming, shoulder: input.shoulder,
       actions: 0, // actions are consumed by handleActions; see below
     };
   }
@@ -110,12 +116,15 @@ function runGame() {
         accumulator = 0;
       } else {
         const base = buildInput();
+        let look = base.look;
         while (accumulator >= STEP) {
-          stepGame(game, STEP, { ...base, actions: pressed }, null, false);
+          stepGame(game, STEP, { ...base, look, actions: pressed }, null, false);
+          look = 0;
           pressed = 0;
           accumulator -= STEP;
           if (game.state.wasted || game.state.busted) break;
         }
+        pendingLook = look; // unconsumed look (no step this frame) carries over
         // Save on S is handled by the keydown listener below (see saveNow).
         if (game.state.wasted) screen = SCREEN_OVER;
         else if (game.state.busted) screen = SCREEN_BUSTED;

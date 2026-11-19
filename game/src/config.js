@@ -57,6 +57,23 @@ export const CAR = {
   health: 100,
 };
 
+/**
+ * Aim feel (from the aim-settings video's principles, adapted to mouse):
+ * a small dead zone kills jitter, hip-fire turns faster than aiming, a
+ * mild response curve keeps small corrections precise while big flicks
+ * still turn fast, and a light assist pulls the aim gently toward a
+ * target inside a small cone while aiming — partial help, never a lock.
+ */
+export const AIM = {
+  deadZone: 1.5, // px of mouse travel per frame ignored (jitter)
+  hipSens: 0.0026, // rad per px, hip-fire (was 0.0022: too slow to track)
+  aimSens: 0.0016, // rad per px, aiming (precision)
+  curve: 1.12, // response-curve exponent on the look delta
+  assistCone: 0.14, // rad (~8 deg) half-cone around the crosshair ray
+  assistRange: 460, // world units, same as bullet range
+  assistRate: 0.5, // rad/s max pull toward the target
+};
+
 export const WANTED = {
   maxStars: 5,
   stealCar: 1,

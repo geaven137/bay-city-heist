@@ -3,7 +3,7 @@
 // autopilot all run through, so a screenshot stages the real rules, not a
 // posed frame. Order per step: player, cars, traffic, pedestrians, police,
 // wanted, missions, combat, particles, camera.
-import { CITY, PLAYER, SAVE_KEY } from './config.js';
+import { AIM, CITY, PLAYER, SAVE_KEY } from './config.js';
 import { createRandom } from './random.js';
 import { createCity, createState, hitsBuilding, resolveBuildingCollision } from './world.js';
 import {
@@ -29,13 +29,49 @@ function playerWorldPos(state) {
   return p.car ? { x: p.car.x, y: p.car.y } : { x: p.x, y: p.y };
 }
 
+/** Shape raw mouse-look into a turn: dead zone, response curve, split sensitivity. */
+function shapeLook(dx, aiming) {
+  const mag = Math.abs(dx);
+  if (mag < AIM.deadZone) return 0;
+  const m = mag - AIM.deadZone;
+  return Math.sign(dx) * Math.pow(m, AIM.curve) * (aiming ? AIM.aimSens : AIM.hipSens);
+}
+
+/**
+ * Light aim assist while aiming: the nearest shootable target (walker or
+ * car) inside a small cone around the crosshair ray pulls the facing
+ * gently toward it — partial help, never a lock, and it never changes
+ * damage. Returns true when a target is held (for the crosshair cue).
+ */
+function aimAssist(state, p, dt) {
+  let best = null;
+  let bestDiff = AIM.assistCone;
+  const consider = (x, y) => {
+    const dx = x - p.x;
+    const dy = y - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d > AIM.assistRange || d < 1) return;
+    let diff = Math.atan2(dy, dx) - p.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    if (Math.abs(diff) < bestDiff) { bestDiff = Math.abs(diff); best = diff; }
+  };
+  for (const ped of state.peds) if (!ped.down) consider(ped.x, ped.y);
+  for (const car of state.cars) if (car.kind !== 'player') consider(car.x, car.y);
+  if (best === null) return false;
+  p.angle += Math.max(-AIM.assistRate * dt, Math.min(AIM.assistRate * dt, best));
+  return true;
+}
+
 function updatePlayerOnFoot(state, dt, input, random) {
   const p = state.player;
   p.aiming = !!input.aiming;
   p.shoulder = input.shoulder || 1;
+  p.assist = false;
   // Mouse-look turns the player (and the camera behind them); aiming
   // turns slower, like a shouldered weapon would.
-  if (input.look) p.angle += input.look * (p.aiming ? 0.0016 : 0.0022);
+  if (input.look) p.angle += shapeLook(input.look, p.aiming);
+  if (p.aiming) p.assist = aimAssist(state, p, dt);
   const move = input.move;
   const len = Math.hypot(move.x, move.y);
   p.moving = len > 0;
