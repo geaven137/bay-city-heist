@@ -27,6 +27,21 @@ const FOG = '13,15,26'; // dusk fog colour (rgb triplet for rgba strings)
 
 const PANEL = { width: 640, top: 150, line: 32, bottom: 76 };
 
+/** Darken (f < 1) or lighten (f > 1) a #rrggbb colour. */
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * f)));
+  const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * f)));
+  const b = Math.max(0, Math.min(255, Math.round((n & 255) * f)));
+  return `rgb(${r},${g},${b})`;
+}
+
+/** Deterministic 0..1 hash from two numbers (no random draws). */
+function hash2(a, b) {
+  const h = (a * 374761393 + b * 668265263) % 1000;
+  return ((h % 1000) + 1000) % 1000 / 1000;
+}
+
 function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
@@ -81,11 +96,15 @@ export function createRenderer(canvas) {
     return sprites.get(key);
   }
 
-  // Wall-face texture per building look: lit windows on the wall colour,
-  // a neon band near the top for neon buildings, roof colour at the cap.
+  // Wall-face texture per building look: four facades (window grid,
+  // shopfront, vertical strips, balconies) with a door, a base band and
+  // one consistent sun side, so the street reads as a city, not a row of
+  // identical boxes. Keyed by facade + lit fraction too.
   const wallTex = new Map();
   function textureFor(b) {
-    const key = `${b.color}|${b.roof}|${b.neon ? 1 : 0}`;
+    const facade = b.facade ?? 0;
+    const lit = b.lit ?? 0.5;
+    const key = `${b.color}|${b.roof}|${b.neon ? 1 : 0}|${facade}|${Math.round(lit * 10)}`;
     if (wallTex.has(key)) return wallTex.get(key);
     const c = document.createElement('canvas');
     c.width = 48;
@@ -93,14 +112,54 @@ export function createRenderer(canvas) {
     const g = c.getContext('2d');
     g.fillStyle = b.color;
     g.fillRect(0, 0, 48, 96);
-    g.fillStyle = 'rgba(0,0,0,0.22)';
-    for (let r = 0; r < 6; r += 1) {
+    // Sun from the left: a warm wash on the left edge, shade on the right.
+    const sun = g.createLinearGradient(0, 0, 48, 0);
+    sun.addColorStop(0, 'rgba(255,190,120,0.14)');
+    sun.addColorStop(0.5, 'rgba(255,190,120,0)');
+    sun.addColorStop(1, 'rgba(0,0,0,0.20)');
+    g.fillStyle = sun;
+    g.fillRect(0, 0, 48, 96);
+    const litWin = (r, col) => hash2(b.x + r * 7, b.y + col * 13) < lit;
+    const win = (x, y, w, h, r, col) => {
+      g.fillStyle = litWin(r, col) ? 'rgba(255,214,120,0.9)' : 'rgba(20,26,44,0.85)';
+      g.fillRect(x, y, w, h);
+    };
+    if (facade === 1) {
+      // Shopfront: big lit panes + awning at street level, small windows up.
+      for (let r = 0; r < 4; r += 1) {
+        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 10 + r * 12, 9, 7, r, col);
+      }
+      g.fillStyle = 'rgba(255,214,120,0.9)';
+      g.fillRect(4, 62, 13, 14);
+      g.fillRect(18, 62, 13, 14);
+      g.fillRect(32, 62, 13, 14);
+      g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
+      g.fillRect(0, 58, 48, 4);
+    } else if (facade === 2) {
+      // Vertical strips: tall office windows in three columns.
       for (let col = 0; col < 3; col += 1) {
-        if (((r * 3 + col) * 37 + b.x) % 5 < 2) continue; // some windows dark
-        g.fillStyle = (r + col) % 3 === 0 ? 'rgba(255,214,120,0.85)' : 'rgba(20,26,44,0.8)';
-        g.fillRect(5 + col * 14, 12 + r * 13, 9, 8);
+        for (let r = 0; r < 5; r += 1) win(6 + col * 14, 10 + r * 15, 8, 11, r, col);
+      }
+    } else if (facade === 3) {
+      // Balconies: slab + railing lines over the windows, four floors.
+      for (let r = 0; r < 4; r += 1) {
+        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 18, 9, 8, r, col);
+        g.fillStyle = 'rgba(0,0,0,0.28)';
+        g.fillRect(0, 22 + r * 18, 48, 2);
+        g.fillStyle = 'rgba(244,246,250,0.35)';
+        g.fillRect(0, 24 + r * 18, 48, 1);
+      }
+    } else {
+      // Window grid (the original facade).
+      for (let r = 0; r < 6; r += 1) {
+        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 13, 9, 8, r, col);
       }
     }
+    // Door at street level + a darker base band (sidewalk grime).
+    g.fillStyle = 'rgba(16,20,30,0.9)';
+    g.fillRect(20, 84, 8, 12);
+    g.fillStyle = 'rgba(0,0,0,0.22)';
+    g.fillRect(0, 90, 48, 6);
     if (b.neon) {
       g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
       g.fillRect(0, 6, 48, 4);
@@ -135,18 +194,36 @@ export function createRenderer(canvas) {
   /** Ground colour at a world point: water, sand, road, sidewalk, park, grass.
    * The centre line is solid and only in the near field: dashes alias
    * into wide yellow bands when the road runs diagonally across the view,
-   * and far away the floor samples are wider than any marking. */
+   * and far away the floor samples are wider than any marking. The same
+   * near-field rule holds for the crosswalk zebra and the dashed edge
+   * lines; the curb band stays everywhere (it is wide enough to sample). */
   function floorColor(city, wx, wy, near) {
     if (wy >= CITY.beachY) return PALETTE.water;
     if (wy >= CITY.beachY - 60) return PALETTE.sand;
-    if (isOnRoad(wx, wy)) {
-      if (near
-        && (Math.abs(wx - nearestCentre(roadCentresX, wx)) < 2
-          || Math.abs(wy - nearestCentre(roadCentresY, wy)) < 2)) return PALETTE.roadLine;
+    const cx = nearestCentre(roadCentresX, wx);
+    const cy = nearestCentre(roadCentresY, wy);
+    const dx = Math.abs(wx - cx);
+    const dy = Math.abs(wy - cy);
+    const onH = dy <= CITY.road / 2; // on the east-west road
+    const onV = dx <= CITY.road / 2; // on the north-south road
+    if (onH || onV) {
+      // Crosswalk zebra inside the intersection square (near field only):
+      // bars run across the road being crossed, spaced along it.
+      if (near && dx < 46 && dy < 46) {
+        if (onH && Math.abs(wx - cx) < 20 && Math.floor(wx / 8) % 2 === 0) return '#d8dce6';
+        if (onV && Math.abs(wy - cy) < 20 && Math.floor(wy / 8) % 2 === 0) return '#d8dce6';
+      }
+      if (near && (dx < 2 || dy < 2)) return PALETTE.roadLine;
+      // Dashed white edge lines, near the road's edge (near field only).
+      if (near) {
+        if (onH && dy > 24 && dy < 28 && Math.floor(wx / 22) % 2 === 0) return '#c8ccd4';
+        if (onV && dx > 24 && dx < 28 && Math.floor(wy / 22) % 2 === 0) return '#c8ccd4';
+      }
       return PALETTE.asphalt;
     }
-    if (Math.abs(wx - nearestCentre(roadCentresX, wx)) <= CITY.road / 2 + 10
-      || Math.abs(wy - nearestCentre(roadCentresY, wy)) <= CITY.road / 2 + 10) {
+    if (dx <= CITY.road / 2 + 10 || dy <= CITY.road / 2 + 10) {
+      // Curb: a darker strip just off the asphalt, then the sidewalk.
+      if (dx <= CITY.road / 2 + 4 || dy <= CITY.road / 2 + 4) return '#4a4f5c';
       return PALETTE.sidewalk;
     }
     for (const park of city.parks) {
@@ -329,41 +406,192 @@ export function createRenderer(canvas) {
     }
   }
 
+  // A real car's rear, not a blob: long low body, a narrower cabin with
+  // a trapezoidal rear window, slim horizontal taillights (never two
+  // squares), wheels at the corners, a plate, mirrors and one sun side.
+  // The old drawing was a wide rounded box with two red squares for eyes
+  // — that is exactly what read as a frog.
   function carSprite(color, police) {
     return sprite(`car-${police ? 'cop' : color}`, 96, 72, (g, w, h) => {
       g.fillStyle = 'rgba(0,0,0,0.35)';
-      g.beginPath(); g.ellipse(w / 2, h - 8, 42, 8, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(w / 2, h - 6, 40, 6, 0, 0, Math.PI * 2); g.fill();
+      // Wheels peeking below the body.
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.roundRect(10, 56, 13, 10, 3); g.fill();
+      g.beginPath(); g.roundRect(73, 56, 13, 10, 3); g.fill();
+      g.fillStyle = 'rgba(200,205,215,0.5)';
+      g.fillRect(14, 59, 5, 4);
+      g.fillRect(77, 59, 5, 4);
+      // Cabin: narrower than the body, roof highlight on top.
       g.fillStyle = color;
-      g.beginPath(); g.roundRect(6, 26, 84, 34, 8); g.fill();
+      g.beginPath(); g.roundRect(20, 12, 56, 24, 6); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.22)';
+      g.fillRect(22, 13, 52, 3);
+      // Rear window: trapezoid, wider at the bottom, sky reflection.
+      g.fillStyle = 'rgba(18,24,38,0.95)';
+      g.beginPath();
+      g.moveTo(26, 34); g.lineTo(70, 34); g.lineTo(66, 17); g.lineTo(30, 17);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,190,120,0.35)';
+      g.beginPath();
+      g.moveTo(34, 34); g.lineTo(44, 34); g.lineTo(38, 17); g.lineTo(32, 17);
+      g.closePath(); g.fill();
+      // Side mirrors.
       g.fillStyle = color;
-      g.beginPath(); g.roundRect(18, 10, 60, 24, 8); g.fill();
-      g.fillStyle = 'rgba(20,26,38,0.9)';
-      g.beginPath(); g.roundRect(24, 14, 48, 16, 4); g.fill();
+      g.beginPath(); g.roundRect(13, 24, 7, 5, 2); g.fill();
+      g.beginPath(); g.roundRect(76, 24, 7, 5, 2); g.fill();
+      // Lower body + darker bumper band.
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(6, 34, 84, 26, 6); g.fill();
+      g.fillStyle = shade(color, 0.55);
+      g.beginPath(); g.roundRect(6, 52, 84, 8, 4); g.fill();
+      // Trunk shut line + centre badge.
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      g.fillRect(14, 40, 68, 1);
+      g.fillStyle = 'rgba(244,246,250,0.8)';
+      g.beginPath(); g.arc(48, 40, 2, 0, Math.PI * 2); g.fill();
+      // Slim horizontal taillights with a bright core + white reverse bit.
       g.fillStyle = '#ff2e2e';
-      g.fillRect(8, 40, 10, 6);
-      g.fillRect(78, 40, 10, 6);
-      g.fillStyle = 'rgba(255,255,255,0.25)';
-      g.fillRect(30, 30, 36, 4);
+      g.fillRect(8, 42, 26, 5);
+      g.fillRect(62, 42, 26, 5);
+      g.fillStyle = 'rgba(255,130,130,0.9)';
+      g.fillRect(10, 43, 22, 2);
+      g.fillRect(64, 43, 22, 2);
+      g.fillStyle = '#f4f6fa';
+      g.fillRect(30, 42, 4, 5);
+      g.fillRect(62, 42, 4, 5);
+      // Plate + exhaust.
+      g.fillStyle = '#dfe3ea';
+      g.fillRect(41, 53, 14, 6);
+      g.fillStyle = 'rgba(0,0,0,0.5)';
+      g.fillRect(44, 55, 8, 1);
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.arc(80, 58, 2, 0, Math.PI * 2); g.fill();
       if (police) {
+        // Low-profile light bar + a dark-blue bumper stripe: reads police.
         g.fillStyle = '#ff2e2e';
-        g.fillRect(38, 6, 10, 6);
+        g.fillRect(34, 8, 14, 4);
         g.fillStyle = '#2e6bff';
-        g.fillRect(50, 6, 10, 6);
+        g.fillRect(48, 8, 14, 4);
+        g.fillStyle = '#1a2a4a';
+        g.fillRect(6, 56, 84, 3);
       }
     });
   }
 
-  function pedSprite(color) {
-    return sprite(`ped-${color}`, 48, 96, (g, w, h) => {
-      g.fillStyle = '#1e2a3a';
-      g.fillRect(16, 58, 7, 34);
-      g.fillRect(25, 58, 7, 34);
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(12, 26, 24, 36, 8); g.fill();
-      g.fillStyle = '#e8b890';
-      g.beginPath(); g.arc(24, 16, 10, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#1e2a3a';
-      g.beginPath(); g.arc(24, 12, 10, Math.PI, 0); g.fill();
+  // One human figure in a 48x96 box, from the front. Proportions from
+  // the character-modeling blockout: head ~1/7.5 of height, separate
+  // masses for head, torso, pelvis and limbs, one sun side for volume.
+  // `o` picks the outfit: shirt, pants, skin, sleeve, headwear, belt,
+  // reflective stripes (fire), badge (police).
+  const SKINS = ['#e8b890', '#c98d64', '#8a5a3b', '#f0c8a0'];
+  const PANTS = ['#1e2a3a', '#3a3f4a', '#5a4632', '#2a4a3a'];
+  const HAIRS = ['#1e2a3a', '#3a2a1e', '#5a4632', '#14181f'];
+  function drawFigure(g, o) {
+    const skin = o.skin;
+    g.fillStyle = o.pants;
+    g.fillRect(17, 49, 6, 38);
+    g.fillRect(25, 49, 6, 38);
+    if (o.stripes) {
+      g.fillStyle = '#f1c40f';
+      g.fillRect(17, 66, 6, 3);
+      g.fillRect(25, 66, 6, 3);
+    }
+    g.fillStyle = '#14181f';
+    g.fillRect(15, 85, 9, 6);
+    g.fillRect(24, 85, 9, 6);
+    g.fillStyle = 'rgba(244,246,250,0.35)';
+    g.fillRect(15, 89, 9, 1);
+    g.fillRect(24, 89, 9, 1);
+    g.fillStyle = o.shirt;
+    g.beginPath(); g.roundRect(15, 19, 18, 28, 4); g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.16)';
+    g.fillRect(15, 19, 3, 28);
+    g.fillStyle = 'rgba(0,0,0,0.20)';
+    g.fillRect(30, 19, 3, 28);
+    g.fillStyle = 'rgba(255,140,90,0.45)';
+    g.fillRect(32, 19, 1, 28);
+    if (o.stripes) {
+      g.fillStyle = '#f1c40f';
+      g.fillRect(15, 28, 18, 3);
+      g.fillRect(15, 38, 18, 3);
+    }
+    if (o.badge) {
+      g.fillStyle = '#ffd23f';
+      g.beginPath(); g.arc(28, 26, 2, 0, Math.PI * 2); g.fill();
+    }
+    g.fillStyle = o.belt || 'rgba(0,0,0,0.4)';
+    g.fillRect(15, 45, 18, 3);
+    if (o.buckle) {
+      g.fillStyle = '#ffd23f';
+      g.fillRect(22, 45, 4, 3);
+    }
+    const sleeveH = o.sleeve === 'short' ? 8 : 21;
+    g.fillStyle = o.shirt;
+    g.fillRect(11, 21, 5, sleeveH);
+    g.fillRect(32, 21, 5, sleeveH);
+    g.fillStyle = skin;
+    g.fillRect(11, 21 + sleeveH, 5, 42 - (21 + sleeveH));
+    g.fillRect(32, 21 + sleeveH, 5, 42 - (21 + sleeveH));
+    g.fillStyle = skin;
+    g.fillRect(21, 15, 6, 4);
+    g.beginPath(); g.arc(24, 10, 6.5, 0, Math.PI * 2); g.fill();
+    if (o.headwear === 'cap') {
+      g.fillStyle = o.capColor || '#1a2a4a';
+      g.beginPath(); g.arc(24, 9, 6.5, Math.PI, 0); g.fill();
+      g.fillRect(18, 8, 12, 2);
+      if (o.badge) {
+        g.fillStyle = '#ffd23f';
+        g.beginPath(); g.arc(24, 5, 1.5, 0, Math.PI * 2); g.fill();
+      }
+    } else if (o.headwear === 'helmet') {
+      g.fillStyle = '#f1c40f';
+      g.beginPath(); g.arc(24, 9, 7, Math.PI, 0); g.fill();
+      g.fillRect(16, 8, 16, 2);
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      g.fillRect(22, 2, 4, 2);
+    } else {
+      g.fillStyle = o.hair || '#1e2a3a';
+      g.beginPath(); g.arc(24, 8, 6.5, Math.PI, 0); g.fill();
+    }
+  }
+
+  function pedSprite(color, kind) {
+    // Deterministic outfit variant from the shirt colour, so the crowd
+    // is not clones: short sleeves, a cap, different skin and trousers.
+    const h = (color.charCodeAt(1) * 7 + color.length * 13) % 4;
+    if (kind === 'police') {
+      return sprite('ped-police', 48, 96, (g) => drawFigure(g, {
+        skin: SKINS[h], shirt: '#1a2a4a', pants: '#141c2e', sleeve: 'long',
+        headwear: 'cap', capColor: '#1a2a4a', belt: '#0e1420', buckle: true, badge: true,
+      }));
+    }
+    if (kind === 'fire') {
+      return sprite('ped-fire', 48, 96, (g) => drawFigure(g, {
+        skin: SKINS[h], shirt: '#b03a2e', pants: '#3a2a22', sleeve: 'long',
+        headwear: 'helmet', belt: '#7a241c', stripes: true,
+      }));
+    }
+    return sprite(`ped-${color}`, 48, 96, (g) => drawFigure(g, {
+      skin: SKINS[h], shirt: color, pants: PANTS[h], sleeve: h === 1 ? 'short' : 'long',
+      headwear: h === 2 ? 'cap' : 'hair', capColor: color, hair: HAIRS[h],
+    }));
+  }
+
+  function lampSprite() {
+    return sprite('lamp', 24, 80, (g, w, h) => {
+      g.strokeStyle = '#2a2f3a';
+      g.lineWidth = 3;
+      g.beginPath(); g.moveTo(12, 78); g.lineTo(12, 12); g.stroke();
+      g.lineWidth = 2;
+      g.beginPath(); g.moveTo(12, 12); g.lineTo(20, 8); g.stroke();
+      const glow = g.createRadialGradient(21, 8, 1, 21, 8, 10);
+      glow.addColorStop(0, 'rgba(255,214,120,0.95)');
+      glow.addColorStop(1, 'rgba(255,214,120,0)');
+      g.fillStyle = glow;
+      g.beginPath(); g.arc(21, 8, 10, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#ffd678';
+      g.beginPath(); g.arc(21, 8, 3, 0, Math.PI * 2); g.fill();
     });
   }
 
@@ -406,50 +634,144 @@ export function createRenderer(canvas) {
     });
   }
 
+  // Kai Reyes from behind: cyan jacket, dark pants. Same blockout as the
+  // walkers — head ~1/7.5 of height (the old sprite's head was 1/5, a
+  // chibi), separate masses, one sun side — so he reads as a person, not
+  // a box with a ball on top.
   function playerSprite(aiming) {
     return sprite(`player-${aiming ? 'aim' : 'walk'}`, 96, 128, (g, w, h) => {
-      g.fillStyle = '#1e2a3a'; // legs
-      g.fillRect(36, 84, 10, 40);
-      g.fillRect(50, 84, 10, 40);
-      g.fillStyle = PALETTE.player; // jacket, seen from behind
-      g.beginPath(); g.roundRect(28, 44, 40, 44, 10); g.fill();
-      g.fillStyle = 'rgba(0,0,0,0.25)';
-      g.fillRect(28, 44, 40, 6);
-      if (aiming) {
-        g.fillStyle = '#e8b890'; // arm raised, pistol forward (up, away)
-        g.fillRect(58, 30, 8, 22);
-        g.fillStyle = '#22262e';
-        g.fillRect(60, 18, 5, 16);
-        g.fillStyle = '#ffd23f';
-        g.fillRect(60, 16, 5, 3);
-      } else {
-        g.fillStyle = '#e8b890';
-        g.fillRect(24, 48, 7, 26);
-        g.fillRect(65, 48, 7, 26);
-      }
-      g.fillStyle = '#e8b890'; // head + hair
-      g.beginPath(); g.arc(48, 30, 13, 0, Math.PI * 2); g.fill();
+      // Legs + shoes.
+      g.fillStyle = PALETTE.playerPants;
+      g.fillRect(37, 74, 10, 44);
+      g.fillRect(49, 74, 10, 44);
       g.fillStyle = '#14181f';
-      g.beginPath(); g.arc(48, 26, 13, Math.PI, 0); g.fill();
+      g.fillRect(35, 116, 13, 8);
+      g.fillRect(48, 116, 13, 8);
+      g.fillStyle = 'rgba(244,246,250,0.35)';
+      g.fillRect(35, 122, 13, 2);
+      g.fillRect(48, 122, 13, 2);
+      // Torso (jacket) + belt.
+      g.fillStyle = PALETTE.player;
+      g.beginPath(); g.roundRect(30, 27, 36, 42, 8); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.18)';
+      g.fillRect(30, 27, 4, 42);
+      g.fillStyle = 'rgba(0,0,0,0.20)';
+      g.fillRect(62, 27, 4, 42);
+      g.fillStyle = 'rgba(255,140,90,0.5)';
+      g.fillRect(65, 27, 1, 42);
+      // Back seam + collar.
+      g.fillStyle = 'rgba(0,0,0,0.22)';
+      g.fillRect(47, 30, 2, 36);
+      g.fillStyle = shade(PALETTE.player, 0.7);
+      g.fillRect(42, 25, 12, 6);
+      g.fillStyle = '#14181f';
+      g.fillRect(30, 67, 36, 4);
+      // Arms: sleeves at the sides, hands at mid-thigh.
+      g.fillStyle = PALETTE.player;
+      if (aiming) {
+        // Right arm raised, pistol up-forward beside the head.
+        g.fillRect(26, 30, 8, 34);
+        g.fillRect(62, 14, 8, 20);
+        g.fillStyle = '#e8b890';
+        g.fillRect(26, 62, 8, 7);
+        g.fillRect(62, 10, 8, 6);
+        g.fillStyle = '#22262e';
+        g.fillRect(64, 0, 5, 12);
+        g.fillStyle = '#ffd23f';
+        g.fillRect(64, 0, 5, 2);
+      } else {
+        g.fillRect(26, 30, 8, 34);
+        g.fillRect(62, 30, 8, 34);
+        g.fillStyle = '#e8b890';
+        g.fillRect(26, 62, 8, 7);
+        g.fillRect(62, 62, 8, 7);
+      }
+      // Neck + head (hair covers the back of the head).
+      g.fillStyle = '#e8b890';
+      g.fillRect(44, 23, 8, 5);
+      g.beginPath(); g.arc(48, 15, 9, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.arc(48, 13, 9, Math.PI, 0); g.fill();
+      g.fillRect(39, 13, 18, 4);
     });
   }
 
+  // The player's car from behind, same language as traffic but bigger
+  // and sharper: a long low rear, a trapezoidal window, slim lights.
   function playerCarSprite(color) {
     return sprite(`rear-${color}`, 160, 110, (g, w, h) => {
       g.fillStyle = 'rgba(0,0,0,0.4)';
       g.beginPath(); g.ellipse(w / 2, h - 6, 72, 10, 0, 0, Math.PI * 2); g.fill();
+      // Wheels at the corners, with hubs.
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.roundRect(16, 88, 24, 16, 4); g.fill();
+      g.beginPath(); g.roundRect(120, 88, 24, 16, 4); g.fill();
+      g.fillStyle = 'rgba(200,205,215,0.55)';
+      g.fillRect(22, 92, 12, 8);
+      g.fillRect(126, 92, 12, 8);
+      g.fillStyle = '#14181f';
+      g.fillRect(25, 95, 6, 2);
+      g.fillRect(129, 95, 6, 2);
+      // Roof + antenna fin.
       g.fillStyle = color;
-      g.beginPath(); g.roundRect(10, 52, 140, 44, 10); g.fill();
-      g.beginPath(); g.roundRect(30, 22, 100, 36, 10); g.fill();
-      g.fillStyle = 'rgba(20,26,38,0.92)';
-      g.beginPath(); g.roundRect(38, 26, 84, 26, 6); g.fill();
+      g.beginPath(); g.roundRect(44, 16, 72, 14, 7); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.25)';
+      g.fillRect(46, 17, 68, 3);
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.moveTo(76, 16); g.lineTo(84, 16); g.lineTo(80, 8); g.closePath(); g.fill();
+      // Rear window: trapezoid with a sunset reflection stripe.
+      g.fillStyle = 'rgba(18,24,38,0.95)';
+      g.beginPath();
+      g.moveTo(48, 54); g.lineTo(112, 54); g.lineTo(104, 28); g.lineTo(56, 28);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,190,120,0.4)';
+      g.beginPath();
+      g.moveTo(60, 54); g.lineTo(74, 54); g.lineTo(66, 28); g.lineTo(58, 28);
+      g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.18)';
+      g.beginPath();
+      g.moveTo(78, 54); g.lineTo(84, 54); g.lineTo(80, 28); g.lineTo(76, 28);
+      g.closePath(); g.fill();
+      // Side mirrors.
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(30, 36, 12, 8, 3); g.fill();
+      g.beginPath(); g.roundRect(118, 36, 12, 8, 3); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.3)';
+      g.fillRect(30, 36, 12, 2);
+      g.fillRect(118, 36, 12, 2);
+      // Lower body: long, low, slightly tapered; darker bumper band.
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(12, 56, 136, 40, 9); g.fill();
+      g.fillStyle = shade(color, 0.55);
+      g.beginPath(); g.roundRect(12, 86, 136, 10, 5); g.fill();
+      // Sun wash on the left edge, shade on the right (one light source).
+      g.fillStyle = 'rgba(255,190,120,0.10)';
+      g.fillRect(12, 56, 10, 40);
+      g.fillStyle = 'rgba(0,0,0,0.16)';
+      g.fillRect(138, 56, 10, 40);
+      // Trunk shut line + centre badge.
+      g.fillStyle = 'rgba(0,0,0,0.28)';
+      g.fillRect(22, 64, 116, 1);
+      g.fillStyle = 'rgba(244,246,250,0.85)';
+      g.beginPath(); g.arc(80, 64, 3, 0, Math.PI * 2); g.fill();
+      // Slim horizontal taillights, bright core, white reverse segment.
       g.fillStyle = '#ff2e2e';
-      g.fillRect(14, 62, 18, 8);
-      g.fillRect(128, 62, 18, 8);
-      g.fillStyle = 'rgba(255,255,255,0.28)';
-      g.fillRect(56, 56, 48, 4);
-      g.fillStyle = '#c8ccd4';
-      g.fillRect(66, 84, 28, 8);
+      g.fillRect(14, 66, 38, 6);
+      g.fillRect(108, 66, 38, 6);
+      g.fillStyle = 'rgba(255,130,130,0.9)';
+      g.fillRect(16, 67, 34, 2);
+      g.fillRect(110, 67, 34, 2);
+      g.fillStyle = '#f4f6fa';
+      g.fillRect(48, 66, 4, 6);
+      g.fillRect(108, 66, 4, 6);
+      // Plate + exhaust tip.
+      g.fillStyle = '#dfe3ea';
+      g.fillRect(66, 76, 28, 10);
+      g.fillStyle = 'rgba(0,0,0,0.55)';
+      g.fillRect(70, 79, 20, 2);
+      g.fillRect(70, 82, 14, 1);
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.arc(134, 92, 3, 0, Math.PI * 2); g.fill();
     });
   }
 
@@ -465,8 +787,14 @@ export function createRenderer(canvas) {
       if (ped.down) continue;
       // People read shorter than cars: at worldH 46 a walker next to a
       // police car looked like a giant. 34 keeps them clearly human.
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 34, 0.5);
-      if (e) entries.push({ ...e, canvas: pedSprite(ped.color) });
+      // Aspect 0.35 matches the figure's real width (shoulders ~1/4 of
+      // height), so walkers are slim people, not wide boxes.
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 34, 0.35);
+      if (e) entries.push({ ...e, canvas: pedSprite(ped.color, ped.kind) });
+    }
+    for (const lamp of state.city.lamps || []) {
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, lamp.x, lamp.y, 0, 70, 0.3);
+      if (e) entries.push({ ...e, canvas: lampSprite() });
     }
     for (const palm of state.city.palms) {
       const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, palm.x, palm.y, 0, 90, 0.67);
@@ -525,8 +853,10 @@ export function createRenderer(canvas) {
       sctx.drawImage(img, x, RH - h - 4 + bob, w, h);
     } else if (p.car) {
       const img = playerCarSprite(p.car.color);
-      const w = 300;
-      const h = 200;
+      // Slightly smaller than before (300x200 filled half the frame):
+      // the car now reads as a car on a road, not a wall of paint.
+      const w = 280;
+      const h = 186;
       sctx.drawImage(img, RW / 2 - w / 2, RH - h - 2, w, h);
     }
   }
