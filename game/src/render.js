@@ -62,6 +62,19 @@ export function createRenderer(canvas) {
     for (let x = left - ((left / 90) % 1) * 90; x < right; x += 90) {
       context.fillRect(x, CITY.beachY + 14 + ((x / 90) % 3) * 8, 46, 3);
     }
+    // Palms along the beach: a starburst of fronds, seen from above.
+    for (const palm of state.city.palms) {
+      if (palm.x < left || palm.x > right || palm.y < top || palm.y > bottom) continue;
+      context.fillStyle = '#1f7a37';
+      for (let f = 0; f < 6; f += 1) {
+        const a = (f / 6) * Math.PI * 2 + palm.lean;
+        context.beginPath();
+        context.ellipse(palm.x + Math.cos(a) * 10, palm.y + Math.sin(a) * 10, 13, 5, a, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.fillStyle = '#6b4a2f';
+      context.beginPath(); context.arc(palm.x, palm.y, 4, 0, Math.PI * 2); context.fill();
+    }
     // Parks.
     for (const park of state.city.parks) {
       if (park.x > right || park.x + park.w < left || park.y > bottom || park.y + park.h < top) continue;
@@ -129,6 +142,24 @@ export function createRenderer(canvas) {
       context.globalAlpha = flicker;
       context.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
       context.fillRect(b.x + ox + 8, b.y + oy + b.h - 10, b.w - 16, 5);
+      context.globalAlpha = 1;
+    }
+    if (b.beachfront) {
+      // Stepped art-deco parapet bands on the pastel roof edge.
+      context.fillStyle = 'rgba(255,255,255,0.28)';
+      context.fillRect(b.x + ox + 10, b.y + oy + 6, b.w - 20, 4);
+      context.fillStyle = 'rgba(0,0,0,0.22)';
+      context.fillRect(b.x + ox + b.w / 2 - 14, b.y + oy + 2, 28, 8);
+    }
+    if (b.sign) {
+      // Generic neon sign on the roof: a plain word in pink or cyan. On a
+      // named building it sits at the roof's top edge, clear of the name.
+      const flicker = 0.65 + 0.35 * Math.sin(time * 3 + b.x * 0.7);
+      context.globalAlpha = flicker;
+      context.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
+      context.font = `700 14px ${FONT}`;
+      context.textAlign = 'center';
+      context.fillText(b.sign, b.x + b.w / 2 + ox, b.y + oy + (b.name ? 18 : b.h / 2));
       context.globalAlpha = 1;
     }
     if (b.name) {

@@ -103,12 +103,18 @@ export function hitsBuilding(city, x, y, radius) {
 }
 
 function makeBuilding(random, bx, by, bw, bh, name) {
+  // The last block row before the beach is the beachfront: pastel art-deco
+  // roofs instead of the dark roof set (same number of random draws, so the
+  // rest of the seeded city is untouched).
+  const beachfront = by + bh >= CITY.beachY - 320;
   const color = PALETTE.building[Math.floor(random() * PALETTE.building.length)];
-  const roof = PALETTE.roof[Math.floor(random() * PALETTE.roof.length)];
+  const roof = beachfront
+    ? PALETTE.pastel[Math.floor(random() * PALETTE.pastel.length)]
+    : PALETTE.roof[Math.floor(random() * PALETTE.roof.length)];
   return {
     x: bx + 14, y: by + 14, w: bw - 28, h: bh - 28,
     height: 22 + random() * 68, color, roof, name: name || null,
-    neon: random() < 0.35,
+    neon: random() < 0.35, beachfront,
   };
 }
 
@@ -161,7 +167,22 @@ export function createCity(random) {
       }
     }
   }
-  return { buildings, parks, width: CITY.width, height: CITY.height };
+  // Palms along the beach road: placed by index with a hash jitter, so they
+  // cost no random draws and the rest of the seeded city is untouched.
+  const palms = [];
+  for (let i = 0; i < 18; i += 1) {
+    const h1 = ((i * 2654435761) % 1000) / 1000;
+    const h2 = ((i * 40503) % 1000) / 1000;
+    palms.push({ x: 120 + i * 170 + h1 * 60, y: CITY.beachY - 30 - h2 * 22, lean: h1 * Math.PI });
+  }
+  // Generic neon signs, plain words only: HOTEL on the named hotel, BAR and
+  // TACOS on two downtown neon buildings. Deterministic from the seed.
+  const hotel = buildings.find((b) => b.name === 'Hotel Palmera');
+  if (hotel) { hotel.sign = 'HOTEL'; hotel.neon = true; }
+  const downtown = buildings.filter((b) => !b.sign && b.neon && b.x > 900 && b.x < 2300 && b.y > 700 && b.y < 1700);
+  if (downtown[0]) downtown[0].sign = 'BAR';
+  if (downtown[1]) downtown[1].sign = 'TACOS';
+  return { buildings, parks, palms, width: CITY.width, height: CITY.height };
 }
 
 /** The whole mutable game state, fresh from a seed. */

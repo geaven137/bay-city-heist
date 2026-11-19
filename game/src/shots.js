@@ -6,6 +6,7 @@
 // (start) is the title over the living city; the chase shot is the money
 // shot — wanted stars, police, minimap and a mission objective at once.
 import { CITY, STEP } from './config.js';
+import { atIntersection, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 import { stepGame } from './game.js';
 import { addWanted } from './police.js';
 import { startMission } from './missions.js';
@@ -34,6 +35,9 @@ function walkToward(game, tx, ty) {
  * Drive the player's car toward (tx, ty) on the road grid: at each
  * intersection pick the street that leads toward the target (greedy,
  * like the police pathfind), and steer to hold that street between them.
+ * The leg is picked from the road the car is actually on — traffic cars
+ * live on roads, so the stolen car is on one, and driving straight at a
+ * target off that road would cut across blocks and wedge on buildings.
  */
 function driveToward(game, tx, ty) {
   const car = game.state.player.car;
@@ -44,20 +48,36 @@ function driveToward(game, tx, ty) {
   if (dist < 70) return idleInput();
   // Remember the chosen street on the car so it holds a line between crossings.
   if (car.autoAxis === undefined) {
-    const horizontal = Math.abs(dx) > Math.abs(dy);
-    car.autoAxis = horizontal ? 'x' : 'y';
-    car.autoDir = horizontal ? Math.sign(dx) : Math.sign(dy);
+    const onH = Math.abs(car.y - nearestCentre(roadCentresY, car.y)) <= 26;
+    const onV = Math.abs(car.x - nearestCentre(roadCentresX, car.x)) <= 26;
+    if (onH && !onV) car.autoAxis = 'x';
+    else if (onV && !onH) car.autoAxis = 'y';
+    else car.autoAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
+    car.autoDir = car.autoAxis === 'x' ? (Math.sign(dx) || 1) : (Math.sign(dy) || 1);
     car.autoX = car.x;
     car.autoY = car.y;
+  }
+  // At an intersection, turn onto the road that still has far to go.
+  if (atIntersection(car.x, car.y)) {
+    if (car.autoAxis === 'x' && Math.abs(dy) > 160 && Math.abs(dx) < 160) {
+      car.autoAxis = 'y'; car.autoDir = Math.sign(dy) || 1;
+    } else if (car.autoAxis === 'y' && Math.abs(dx) > 160 && Math.abs(dy) < 160) {
+      car.autoAxis = 'x'; car.autoDir = Math.sign(dx) || 1;
+    }
   }
   const wantAngle = car.autoAxis === 'x' ? (car.autoDir > 0 ? 0 : Math.PI) : (car.autoDir > 0 ? Math.PI / 2 : -Math.PI / 2);
   let diff = wantAngle - car.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   const steer = Math.max(-1, Math.min(1, diff * 2.4));
+  // Coast through turns instead of handbraking to a crawl: the grip model
+  // needs speed to turn, so braking hard mid-corner stranded the car at
+  // 1 km/h. Handbrake only for a near-reversal.
+  const gas = Math.abs(diff) > 0.9 ? 0 : -1;
+  const handbrake = Math.abs(diff) > 2.4;
   // Re-pick the street every 240px of travel, so the route bends toward the target.
   if (Math.hypot(car.x - car.autoX, car.y - car.autoY) > 240) car.autoAxis = undefined;
-  return { move: { x: steer, y: -1 }, run: false, handbrake: Math.abs(diff) > 1.2, aim: null, actions: 0 };
+  return { move: { x: steer, y: gas }, run: false, handbrake, aim: null, actions: 0 };
 }
 
 function runSteps(game, seconds, inputFn, harmless) {
@@ -109,13 +129,23 @@ export function stageShot(name, game) {
   if (name === 'play' || name === 'chase') {
     stealNearestCar(game, 14);
     if (name === 'play') {
+      // Capture the frame while the car is actually moving: stop the drive
+      // once it holds a cruise over 50 km/h for a few steps, so the shot
+      // shows driving down a clear road, not a car parked mid-turn. If the
+      // car never gets clear road, the full run is the fallback frame.
       let wp = 0;
-      runSteps(game, PLAY_SECONDS, () => {
+      let fast = 0;
+      const steps = Math.floor(PLAY_SECONDS / STEP);
+      for (let i = 0; i < steps; i += 1) {
         const target = DOWNTOWN_LOOP[wp % DOWNTOWN_LOOP.length];
         const car = game.state.player.car;
         if (car && Math.hypot(car.x - target.x, car.y - target.y) < 120) wp += 1;
-        return game.state.player.car ? driveToward(game, target.x, target.y) : idleInput();
-      }, false);
+        stepGame(game, STEP, game.state.player.car ? driveToward(game, target.x, target.y) : idleInput(), null, false);
+        if (game.state.wasted || game.state.busted) break;
+        const c = game.state.player.car;
+        fast = c && Math.abs(c.speed) > 140 ? fast + 1 : 0;
+        if (fast >= 12) break;
+      }
       return { screen: SCREEN_PLAY, best: state.money };
     }
     // Chase: a job that makes noise, three stars, and the police on us.

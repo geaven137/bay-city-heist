@@ -137,8 +137,12 @@ export function drawHud(ctx, state, speedKmh) {
     const dist = Math.hypot(dx, dy);
     if (dist > 420) {
       const ang = Math.atan2(dy, dx);
-      const cx = VIEW.width / 2 + Math.cos(ang) * 180;
-      const cy = 120 + Math.sin(ang) * 80;
+      // Orbit around the mission line — but never inside the mission-text
+      // band (title y=40, subtitle y=66): when the target is north, the
+      // raw orbit puts the arrow and the "NNNm" label right on top of the
+      // objective text. Clamp below the band, so the label can never cover it.
+      const cx = Math.max(70, Math.min(VIEW.width - 70, VIEW.width / 2 + Math.cos(ang) * 180));
+      const cy = Math.max(112, 120 + Math.sin(ang) * 80);
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(ang);
