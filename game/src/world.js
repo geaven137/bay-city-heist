@@ -111,10 +111,15 @@ function makeBuilding(random, bx, by, bw, bh, name) {
   const roof = beachfront
     ? PALETTE.pastel[Math.floor(random() * PALETTE.pastel.length)]
     : PALETTE.roof[Math.floor(random() * PALETTE.roof.length)];
+  // Visual-only facade variety, from a hash of the block — no random
+  // draws, so the seeded layout (positions, parks, missions) is untouched.
+  const hash = (bx * 31 + by * 17) % 100;
   return {
     x: bx + 14, y: by + 14, w: bw - 28, h: bh - 28,
     height: 22 + random() * 68, color, roof, name: name || null,
     neon: random() < 0.35, beachfront,
+    facade: hash % 4, // 0 window grid, 1 shopfront, 2 strip, 3 balcony
+    lit: 0.35 + (hash % 5) * 0.1, // fraction of windows lit at dusk
   };
 }
 
@@ -182,7 +187,18 @@ export function createCity(random) {
   const downtown = buildings.filter((b) => !b.sign && b.neon && b.x > 900 && b.x < 2300 && b.y > 700 && b.y < 1700);
   if (downtown[0]) downtown[0].sign = 'BAR';
   if (downtown[1]) downtown[1].sign = 'TACOS';
-  return { buildings, parks, palms, width: CITY.width, height: CITY.height };
+  if (downtown[2]) downtown[2].sign = 'CAFE';
+  if (downtown[3]) downtown[3].sign = 'PIZZA';
+  // Streetlights, one per intersection corner (hash jitter, no random
+  // draws): they make the roads read at dusk and cost no layout change.
+  const lamps = [];
+  for (const cx of roadCentresX) {
+    for (const cy of roadCentresY) {
+      const h = ((cx * 13 + cy * 7) % 12) - 6;
+      lamps.push({ x: cx + 38, y: cy + 38 + h });
+    }
+  }
+  return { buildings, parks, palms, lamps, width: CITY.width, height: CITY.height };
 }
 
 /** The whole mutable game state, fresh from a seed. */
