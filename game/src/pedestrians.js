@@ -3,6 +3,7 @@
 // from gunshots, crashes and the player's car. Knocked-down walkers stay
 // down for a while, then get up and walk away.
 import { PALETTE } from './config.js';
+import { HL } from './patchkit.js';
 import { atIntersection, nearestIntersection, randomSidewalkPoint, resolveBuildingCollision } from './world.js';
 
 /**
@@ -72,7 +73,6 @@ export function updatePedestrian(state, ped, dt, random) {
     ped.y += Math.sin(ped.angle) * speed * dt;
     if (ped.timer <= 0 || atIntersection(ped.x, ped.y, 30)) {
       ped.timer = 2 + random() * 4;
-      // Turn onto the crossing street, or about-face.
       const node = nearestIntersection(ped.x, ped.y);
       const options = [0, Math.PI / 2, -Math.PI / 2, Math.PI];
       ped.angle += options[Math.floor(random() * options.length)];
@@ -104,6 +104,7 @@ export function knockDownPed(state, ped, addWanted) {
   ped.downTimer = 6;
   ped.mode = 'down';
   state.stats.pedsDown += 1;
+  HL.Profile.record('takedown');
   addWanted(1, ped.x, ped.y);
   return true;
 }

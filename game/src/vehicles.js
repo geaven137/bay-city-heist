@@ -31,7 +31,6 @@ export function spawnTrafficCar(state, random, x, y) {
   car.axis = axis;
   car.dir = dir;
   car.targetSpeed = CAR.trafficSpeed * (0.8 + random() * 0.4);
-  // Sit in the right-hand lane.
   if (axis === 'x') car.y += laneOffset('x', dir);
   else car.x += laneOffset('y', dir);
   state.cars.push(car);
@@ -54,8 +53,9 @@ export function driveCar(car, dt, throttle, steer, handbrake) {
   car.speed += throttle * accel * dt;
   car.speed -= car.speed * (handbrake ? 1.6 : CAR.drag) * dt;
   if (car.speed > CAR.maxSpeed) car.speed = CAR.maxSpeed;
+  if (car.flat && car.speed > 180) car.speed = 180; // blown tire: limp
   if (car.speed < -CAR.maxReverse) car.speed = -CAR.maxReverse;
-  const turn = handbrake ? CAR.handbrakeTurn : CAR.turnRate;
+  const turn = (handbrake ? CAR.handbrakeTurn : CAR.turnRate) * (car.flat ? 0.6 : 1);
   const grip = Math.min(1, Math.abs(car.speed) / 120);
   car.angle += steer * turn * grip * (car.speed >= 0 ? 1 : -1) * dt;
   car.x += Math.cos(car.angle) * car.speed * dt;
@@ -124,7 +124,6 @@ export function updateTrafficCar(state, car, dt, random) {
   while (diff < -Math.PI) diff += Math.PI * 2;
   steer = Math.max(-1, Math.min(1, diff * 2.2));
   driveCar(car, dt, throttle, steer, false);
-  // Lane correction: drift back onto the lane line.
   if (car.axis === 'x') {
     const laneY = nearestCentre(roadCentresY, car.y) + laneOffset('x', car.dir);
     car.y += (laneY - car.y) * Math.min(1, dt * 1.5);
@@ -177,7 +176,6 @@ export function stealCar(state, car, addWanted) {
   if (!car) return null;
   const occupied = car.driver === 'ai';
   if (occupied) {
-    // The driver flees on foot.
     state.peds.push({
       x: car.x + 30, y: car.y + 20, angle: 0, speed: 0, color: PALETTE.ped[0],
       mode: 'flee', fleeX: car.x, fleeY: car.y, timer: 0, down: false, downTimer: 0,
@@ -189,7 +187,6 @@ export function stealCar(state, car, addWanted) {
   state.player.car = car;
   state.player.onFoot = false;
   state.stats.carsStolen += 1;
-  // Taking an occupied car is the crime; a parked car is just a car.
   if (occupied) addWanted(WANTED.stealCar, car.x, car.y);
   return car;
 }

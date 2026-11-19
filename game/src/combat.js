@@ -18,7 +18,7 @@ export function punch(state, random) {
   for (const ped of state.peds) {
     if (ped.down) continue;
     if (Math.hypot(ped.x - px, ped.y - py) < 30) {
-      knockDownPed(state, ped, (n, x, y) => addWanted(state, n, x, y));
+      knockDownPed(state, ped, (n, x, y) => addWanted(state, n, x, y, 'punch'));
       spawnParticles(state, ped.x, ped.y, 8, '#ffd23f', 120);
     }
   }
@@ -40,7 +40,7 @@ export function shoot(state, tx, ty, random) {
   });
   spawnParticles(state, p.x + Math.cos(angle) * 24, p.y + Math.sin(angle) * 24, 4, '#ffd23f', 160);
   scarePedestrians(state, p.x, p.y, 320);
-  addWanted(state, 1, p.x, p.y);
+  addWanted(state, 1, p.x, p.y, 'shoot');
 }
 
 /** Fly the bullets; hit walkers and cars; spark on buildings. */
@@ -54,7 +54,7 @@ export function updateBullets(state, dt, random) {
       for (const ped of state.peds) {
         if (ped.down) continue;
         if (Math.hypot(ped.x - b.x, ped.y - b.y) < 16) {
-          knockDownPed(state, ped, (n, x, y) => addWanted(state, n, x, y));
+          knockDownPed(state, ped, (n, x, y) => addWanted(state, n, x, y, 'shoot'));
           spawnParticles(state, b.x, b.y, 10, '#ff5a5a', 180);
           dead = true;
           break;
@@ -87,7 +87,7 @@ export function damageCar(state, car, amount, random) {
     spawnParticles(state, car.x, car.y, 40, '#ff7a2e', 260);
     spawnParticles(state, car.x, car.y, 24, '#3a3f4a', 140);
     state.camera.shake = Math.max(state.camera.shake, 10);
-    addWanted(state, 1, car.x, car.y);
+    addWanted(state, 1, car.x, car.y, 'shoot');
   } else if (car.health < 50 && random() < 0.3) {
     spawnParticles(state, car.x, car.y - 10, 2, '#8a8f9a', 90);
   }

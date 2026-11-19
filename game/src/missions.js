@@ -5,6 +5,7 @@
 // at the marina. After the story, repeatable taxi fares keep paying.
 // All names, people and places are original.
 import { CITY, MISSIONS } from './config.js';
+import { HL } from './patchkit.js';
 import { makeCar } from './vehicles.js';
 import { randomRoadPoint, randomSidewalkPoint } from './world.js';
 
@@ -91,14 +92,15 @@ export function startSideJob(state, random) {
 
 function completeMission(state) {
   const m = state.mission;
-  state.money += m.def.reward;
+  const reward = Math.round(m.def.reward * HL.Profile.rewardMult());
+  state.money += reward;
   state.missionsDone += 1;
   state.stats.missionsDone += 1;
-  state.banner = { text: 'JOB DONE', sub: `+$${m.def.reward} — ${m.def.title}`, timer: 3 };
+  state.banner = { text: 'JOB DONE', sub: `+$${reward} — ${m.def.title}`, timer: 3 };
   state.mission = null;
   if (state.missionsDone >= MISSIONS.length) {
     state.storyDone = true;
-    state.banner = { text: 'NEON BAY — STORY COMPLETE', sub: 'The city is yours. Taxi fares keep paying.', timer: 4 };
+    state.banner = { text: 'NEON BAY — STORY COMPLETE', sub: HL.Profile.ending(), timer: 4 };
   }
 }
 
@@ -132,7 +134,7 @@ export function updateMission(state, dt, random, addWanted) {
       state.cars.push(car);
       m.specialCar = car;
     }
-    if (stage.makeNoise) addWanted(2, px, py);
+    if (stage.makeNoise) addWanted(2, px, py, 'alarm');
   }
 
   const dist = Math.hypot(px - stage.x, py - stage.y);
@@ -173,6 +175,7 @@ export function nextMissionIndex(state) {
 export function tryStartNextMission(state, random) {
   const idx = nextMissionIndex(state);
   if (idx === null || state.mission) return false;
+  if (!HL.Economy.canStart(idx, state.money)) { state.banner = { text: 'Need $' + HL.Economy.need(idx), sub: 'Fund the crew before this job', timer: 3 }; return false; }
   startMission(state, random, idx);
   return true;
 }
