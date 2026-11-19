@@ -5,19 +5,19 @@
 // turns the player (mouse-look); the right button aims over the shoulder,
 // the left button shoots where the crosshair points, and Q swaps the
 // shoulder. The mouse position is kept in screen pixels for menus.
+import { HL } from './patchkit.js';
+
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
 export const ACTION_ENTER_CAR = 4;
 export const ACTION_PUNCH = 8;
 export const ACTION_SHOOT = 16;
 export const ACTION_MUTE = 32;
+export const ACTION_RETRY = 64;
 
-const UP = new Set(['ArrowUp', 'KeyW']);
-const DOWN = new Set(['ArrowDown', 'KeyS']);
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+// Key bindings live in HL.Input.bind (remappable, persisted); these read it.
+const B = HL.Input.bind;
+const inBind = (a, c) => B[a].includes(c);
 
 export function createInput(target) {
   const held = new Set();
@@ -30,13 +30,14 @@ export function createInput(target) {
   let shoulder = 1; // 1 = right shoulder (player on the left), -1 = swapped
 
   function press(code) {
-    if (UP.has(code) || DOWN.has(code) || LEFT.has(code) || RIGHT.has(code)) held.add(code);
-    else if (CONFIRM.has(code)) actions |= ACTION_CONFIRM | ACTION_PUNCH;
-    else if (code === 'KeyE') actions |= ACTION_ENTER_CAR;
-    else if (code === 'KeyF') actions |= ACTION_SHOOT;
-    else if (code === 'KeyM') actions |= ACTION_MUTE;
-    else if (code === 'KeyQ') shoulder = -shoulder;
-    else if (PAUSE.has(code)) actions |= ACTION_PAUSE;
+    if (inBind('up', code) || inBind('down', code) || inBind('left', code) || inBind('right', code)) held.add(code);
+    else if (inBind('confirm', code)) actions |= ACTION_CONFIRM | ACTION_PUNCH;
+    else if (inBind('enter', code)) actions |= ACTION_ENTER_CAR;
+    else if (inBind('shoot', code)) actions |= ACTION_SHOOT;
+    else if (inBind('mute', code)) actions |= ACTION_MUTE;
+    else if (inBind('retry', code)) actions |= ACTION_RETRY;
+    else if (inBind('shoulder', code)) shoulder = -shoulder;
+    else if (inBind('pause', code)) actions |= ACTION_PAUSE;
   }
 
   window.addEventListener('keydown', (event) => {
@@ -69,8 +70,8 @@ export function createInput(target) {
   });
   target.addEventListener('contextmenu', (event) => { event.preventDefault(); });
 
-  function has(set) {
-    for (const code of set) if (held.has(code)) return true;
+  function hasB(action) {
+    for (const code of B[action]) if (held.has(code)) return true;
     return false;
   }
 
@@ -78,8 +79,8 @@ export function createInput(target) {
     /** -1/0/1 on each axis from the held keys. */
     move() {
       return {
-        x: (has(RIGHT) ? 1 : 0) - (has(LEFT) ? 1 : 0),
-        y: (has(DOWN) ? 1 : 0) - (has(UP) ? 1 : 0),
+        x: (hasB('right') ? 1 : 0) - (hasB('left') ? 1 : 0),
+        y: (hasB('down') ? 1 : 0) - (hasB('up') ? 1 : 0),
       };
     },
     get handbrake() { return held.has('ShiftLeft') || held.has('ShiftRight'); },
@@ -100,5 +101,7 @@ export function createInput(target) {
       actions = 0;
       return taken;
     },
+    /** Queue an action bit from outside (touch buttons, gamepad). */
+    inject(bit) { actions |= bit; },
   };
 }

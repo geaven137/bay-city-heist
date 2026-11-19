@@ -7,13 +7,12 @@
 // window.__shotReady for a screenshot.
 import { STEP } from './config.js';
 import { createGame, loadGame, readBest, recover, saveBest, saveGame, stepGame } from './game.js';
-import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, ACTION_RETRY, createInput } from './input.js';
 import { createAudio } from './audio.js';
+import { HL } from './patchkit.js';
+import { startMission } from './missions.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
-
-/** The longest frame the loop catches up on; a longer stall (a hidden tab) is dropped. */
-const MAX_FRAME = 0.25;
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -24,8 +23,10 @@ const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 const game = createGame(seed);
 const renderer = createRenderer(canvas);
+const ctx2d = canvas.getContext('2d');
 
 function runShot(name) {
+  game.state._hlShot = true; // scripted demo: no roadblocks, so the frames stay comparable
   const scene = stageShot(name, game);
   let painted = 0;
   function paint() {
@@ -40,12 +41,12 @@ function runShot(name) {
 function runGame() {
   const input = createInput(canvas);
   const audio = createAudio();
+  HL.boot({ canvas, input, unlockAudio: () => audio.unlock(), setQuality: (l) => renderer.setQuality(l), announce });
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;
-  let last = performance.now();
-  let hasSave = false;
-  try { hasSave = !!window.localStorage.getItem('neon-bay.save.v1'); } catch { hasSave = false; }
+  let autoT = 0;
+  let hasSave = HL.Save.exists();
 
   function announce(message) {
     status.textContent = message;
@@ -72,32 +73,30 @@ function runGame() {
     announce('Playing. Mara Voss has work at the Marina Safehouse.');
   }
 
-  // Mouse-look must turn exactly once per frame, however many fixed
-  // steps that frame catches up on — and a frame with no step must not
-  // drop the movement. Otherwise turn speed depends on frame rate and
-  // fast displays eat half the mouse input.
   let pendingLook = 0;
-  function buildInput() {
-    pendingLook += input.takeLook();
+  function buildInput(pad) {
+    pendingLook += input.takeLook() + (pad ? pad.look : 0);
     const move = input.move();
+    const tm = HL.Input.touchMove();
+    const mx = Math.max(-1, Math.min(1, move.x + tm.x + (pad ? pad.move.x : 0)));
+    const my = Math.max(-1, Math.min(1, move.y + tm.y + (pad ? pad.move.y : 0)));
     const p = game.state.player;
-    // Third-person aim: the crosshair sits in the middle of the screen,
-    // so a shot goes straight where the player faces.
     const aim = p.onFoot ? { x: p.x + Math.cos(p.angle) * 460, y: p.y + Math.sin(p.angle) * 460 } : null;
     return {
-      move, run: input.run, handbrake: input.handbrake, aim,
-      look: pendingLook, aiming: input.aiming, shoulder: input.shoulder,
+      move: { x: mx, y: my }, run: input.run, handbrake: input.handbrake, aim,
+      look: pendingLook, aiming: input.aiming || HL.Input.touch.aim || (pad ? pad.aiming : false), shoulder: input.shoulder,
       actions: 0, // actions are consumed by handleActions; see below
     };
   }
 
-  function frame(now) {
-    requestAnimationFrame(frame);
-    const frameDt = Math.min((now - last) / 1000, MAX_FRAME);
+  HL.loop((frameDt) => {
     accumulator += frameDt;
-    last = now;
-    // One-shot presses belong to this frame's steps: take them once here.
+    HL.Perf.frame(frameDt);
     let pressed = input.takeActions();
+    const pad = HL.Input.poll();
+    pressed |= pad.actions;
+    autoT += frameDt;
+    if (screen === SCREEN_PLAY && autoT > 30) { autoT = 0; saveGame(game.state); }
     if (pressed & ACTION_MUTE) {
       const muted = audio.toggleMute();
       announce(muted ? 'Muted.' : 'Sound on.');
@@ -115,7 +114,8 @@ function runGame() {
         announce('Paused.');
         accumulator = 0;
       } else {
-        const base = buildInput();
+        if ((pressed & ACTION_RETRY) && game.state._hlRetry && HL.Missions.retry(game.state, game.random, startMission)) announce('Retrying the job from the checkpoint.');
+        const base = buildInput(pad);
         let look = base.look;
         while (accumulator >= STEP) {
           stepGame(game, STEP, { ...base, look, actions: pressed }, null, false);
@@ -125,7 +125,6 @@ function runGame() {
           if (game.state.wasted || game.state.busted) break;
         }
         pendingLook = look; // unconsumed look (no step this frame) carries over
-        // Save on S is handled by the keydown listener below (see saveNow).
         if (game.state.wasted) screen = SCREEN_OVER;
         else if (game.state.busted) screen = SCREEN_BUSTED;
         trackBest();
@@ -146,10 +145,9 @@ function runGame() {
       accumulator = 0;
     }
     renderer.draw(game.state, screen, best, game.state.time);
-  }
+    HL.Input.drawTouch(ctx2d);
+  });
 
-  // S saves right now from the pause screen (S is also "drive down",
-  // so it must not save while playing).
   window.addEventListener('keydown', (event) => {
     if (event.code === 'KeyS' && screen === SCREEN_PAUSED) {
       if (saveGame(game.state)) announce('Saved.');
@@ -164,7 +162,6 @@ function runGame() {
   });
 
   announce('NEON BAY. Press Space or click to start.');
-  requestAnimationFrame(frame);
 }
 
 if (shot) runShot(shot);
