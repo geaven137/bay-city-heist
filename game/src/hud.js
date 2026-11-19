@@ -131,9 +131,9 @@ export function drawHud(ctx, state, speedKmh) {
   text(ctx, 'PISTOL', VIEW.width - 24, VIEW.height - 52, 15, PALETTE.muted, 'right', true);
   text(ctx, `${state.ammo}`, VIEW.width - 24, VIEW.height - 20, 30, state.ammo > 0 ? PALETTE.text : '#ff5a5a', 'right', true);
   if (speedKmh !== null) {
-    text(ctx, 'W/S gas • A/D steer • SHIFT handbrake • E exit', VIEW.width / 2, VIEW.height - 28, 14, PALETTE.muted, 'center');
+    text(ctx, 'W/S gas • A/D steer • SHIFT handbrake • E exit', VIEW.width / 2, VIEW.height - 40, 14, PALETTE.muted, 'center');
   } else {
-    text(ctx, 'WASD move • MOUSE look • RIGHT-CLICK aim • CLICK shoot • Q swap shoulder • E steal car', VIEW.width / 2, VIEW.height - 28, 14, PALETTE.muted, 'center');
+    text(ctx, 'WASD move • MOUSE look • RIGHT-CLICK aim • CLICK shoot • Q swap shoulder • E steal car', VIEW.width / 2, VIEW.height - 40, 14, PALETTE.muted, 'center');
   }
   drawMinimap(ctx, state);
   // Mission compass arrow at the screen edge.

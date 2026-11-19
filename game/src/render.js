@@ -669,16 +669,22 @@ export function createRenderer(canvas) {
       // Arms: sleeves at the sides, hands at mid-thigh.
       g.fillStyle = PALETTE.player;
       if (aiming) {
-        // Right arm raised, pistol up-forward beside the head.
+        // Right arm raised, pistol held forward: a short barrel angled
+        // up-right toward the crosshair. (The old vertical bar read as
+        // a phone held upright.)
         g.fillRect(26, 30, 8, 34);
         g.fillRect(62, 14, 8, 20);
         g.fillStyle = '#e8b890';
         g.fillRect(26, 62, 8, 7);
         g.fillRect(62, 10, 8, 6);
+        g.save();
+        g.translate(66, 12);
+        g.rotate(-Math.PI / 4);
         g.fillStyle = '#22262e';
-        g.fillRect(64, 0, 5, 12);
+        g.fillRect(0, -2, 14, 4);
         g.fillStyle = '#ffd23f';
-        g.fillRect(64, 0, 5, 2);
+        g.fillRect(11, -2, 3, 4);
+        g.restore();
       } else {
         g.fillRect(26, 30, 8, 34);
         g.fillRect(62, 30, 8, 34);

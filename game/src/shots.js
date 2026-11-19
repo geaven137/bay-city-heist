@@ -123,6 +123,48 @@ const DOWNTOWN_LOOP = [
 ];
 
 /**
+ * Staging-only separation: after the drive, police cars that ended up
+ * tailgating in the player's lane read as one blob with the player car
+ * (the player car is a fixed centre sprite; a cop at the same depth and
+ * lane projects right on top of it). Move each such cop to the next lane
+ * over, slightly ahead, so every car reads as its own car. Positions
+ * only — counts, wanted, mission and speed are untouched.
+ */
+const SPREAD_LATS = [150, -150, 220, -220];
+function spreadPolice(game) {
+  const { state } = game;
+  const pcar = state.player.car;
+  if (!pcar) return;
+  const cam = state.camera;
+  const fx = Math.cos(cam.angle);
+  const fy = Math.sin(cam.angle);
+  const px = -fy;
+  const py = fx;
+  const pDepth = (pcar.x - cam.x) * fx + (pcar.y - cam.y) * fy;
+  const pLat = (pcar.x - cam.x) * px + (pcar.y - cam.y) * py;
+  let next = 0;
+  for (const c of state.cars) {
+    if (c.kind !== 'police') continue;
+    const depth = (c.x - cam.x) * fx + (c.y - cam.y) * fy;
+    const lat = (c.x - cam.x) * px + (c.y - cam.y) * py;
+    if (Math.abs(lat - pLat) >= 110 || depth <= 0 || depth >= pDepth + 280) continue;
+    for (let k = 0; k < SPREAD_LATS.length; k += 1) {
+      const latOff = SPREAD_LATS[(next + k) % SPREAD_LATS.length];
+      const nx = cam.x + fx * (pDepth + 160) + px * (pLat + latOff);
+      const ny = cam.y + fy * (pDepth + 160) + py * (pLat + latOff);
+      if (nx < 40 || nx > CITY.width - 40 || ny < 40 || ny > CITY.height - 40) continue;
+      if (hitsBuilding(state.city, nx, ny, 20)) continue;
+      c.x = nx;
+      c.y = ny;
+      c.angle = pcar.angle;
+      c.speed = pcar.speed;
+      next = (next + k + 1) % SPREAD_LATS.length;
+      break;
+    }
+  }
+}
+
+/**
  * Set `game` to the named scene (start, play, chase or end; any other name
  * is start) and return the screen to draw over it and the best money to show.
  */
@@ -148,6 +190,7 @@ export function stageShot(name, game) {
         fast = c && Math.abs(c.speed) > 140 ? fast + 1 : 0;
         if (fast >= 12) break;
       }
+      spreadPolice(game);
       return { screen: SCREEN_PLAY, best: state.money };
     }
     // Chase: a job that makes noise, three stars, and the police on us.
@@ -161,6 +204,7 @@ export function stageShot(name, game) {
       const target = elapsed < 10 ? { x: CITY.bank.x, y: CITY.bank.y + 160 } : { x: 480, y: 1760 };
       return driveToward(game, target.x, target.y);
     }, false);
+    spreadPolice(game);
     return { screen: SCREEN_PLAY, best: state.money };
   }
   if (name === 'end') {
