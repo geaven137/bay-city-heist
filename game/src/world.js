@@ -11,7 +11,7 @@ export const roadCentresY = [];
 for (let x = CITY.pitch / 2; x < CITY.width; x += CITY.pitch) roadCentresX.push(x);
 for (let y = CITY.pitch / 2; y < CITY.height; y += CITY.pitch) roadCentresY.push(y);
 
-function nearestCentre(list, value) {
+export function nearestCentre(list, value) {
   let best = list[0];
   let bestD = Math.abs(value - best);
   for (const c of list) {

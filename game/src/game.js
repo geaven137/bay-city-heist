@@ -3,17 +3,17 @@
 // autopilot all run through, so a screenshot stages the real rules, not a
 // posed frame. Order per step: player, cars, traffic, pedestrians, police,
 // wanted, missions, combat, particles, camera.
-import { CAR, CITY, PALETTE, PLAYER, SAVE_KEY, STEP, WANTED } from './config.js';
+import { CITY, PLAYER, SAVE_KEY } from './config.js';
 import { createRandom } from './random.js';
-import { createCity, createState, hitsBuilding, resolveBuildingCollision } from './world.js';
+import { createCity, createState, resolveBuildingCollision } from './world.js';
 import {
   collideCarWithCity, collideCars, driveCar, exitCar, maintainTraffic,
-  nearestCar, spawnTrafficCar, stealCar, updateTrafficCar,
+  nearestCar, stealCar, updateTrafficCar,
 } from './vehicles.js';
-import { knockDownPed, maintainPedestrians, scarePedestrians, updatePedestrian } from './pedestrians.js';
+import { knockDownPed, maintainPedestrians, updatePedestrian } from './pedestrians.js';
 import { addWanted, damagePlayer, maintainPolice, updatePoliceCar, updateWanted } from './police.js';
-import { currentStage, missionTarget, nextMissionIndex, startMission, startSideJob, tryStartNextMission, updateMission } from './missions.js';
-import { crashDamage, damageCar, punch, shoot, updateBullets } from './combat.js';
+import { startSideJob, tryStartNextMission, updateMission } from './missions.js';
+import { crashDamage, punch, shoot, updateBullets } from './combat.js';
 import { spawnExhaust, spawnParticles, updateParticles, updateShake } from './particles.js';
 
 /** A fresh game: city, state and the seeded random source. */
@@ -214,6 +214,14 @@ export function stepGame(game, dt, input, audio, harmless) {
     updateWanted(state, dt);
     updateMission(state, dt, random, (n, x, y) => addWanted(state, n, x, y));
     updateSideJob(state, dt);
+    // After the story, taxi fares keep coming on their own.
+    if (state.storyDone && !state.mission && !state.sideJob) {
+      state.sideJobDelay = (state.sideJobDelay ?? 8) - dt;
+      if (state.sideJobDelay <= 0) {
+        startSideJob(state, random);
+        state.sideJobDelay = 20;
+      }
+    }
     // A story job waits at the safehouse: walk up and it starts.
     if (!state.mission && !state.storyDone) {
       const pos = playerWorldPos(state);

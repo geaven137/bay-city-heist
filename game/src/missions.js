@@ -5,7 +5,7 @@
 // at the marina. After the story, repeatable taxi fares keep paying.
 // All names, people and places are original.
 import { CITY, MISSIONS } from './config.js';
-import { makeCar, spawnTrafficCar } from './vehicles.js';
+import { makeCar } from './vehicles.js';
 import { randomRoadPoint, randomSidewalkPoint } from './world.js';
 
 export const STAGE_GOTO = 'goto';

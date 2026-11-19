@@ -5,10 +5,8 @@
 // Manhattan distance to the player. Lose them by staying unseen: the stars
 // tick down after WANTED.decaySeconds with no cop in sight.
 import { CAR, WANTED } from './config.js';
-import {
-  atIntersection, collideCarWithCity, driveCar, nearestIntersection, spawnPoliceCar,
-} from './vehicles.js';
-import { nearestCentre, roadCentresX, roadCentresY } from './world.js';
+import { collideCarWithCity, driveCar, spawnPoliceCar } from './vehicles.js';
+import { atIntersection, nearestIntersection } from './world.js';
 
 export function wantedStars(state) {
   return Math.min(WANTED.maxStars, state.wanted);

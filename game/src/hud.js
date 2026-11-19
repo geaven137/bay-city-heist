@@ -114,7 +114,7 @@ export function drawHud(ctx, state, speedKmh) {
     text(ctx, `Taxi fare — $${job.fare}`, VIEW.width / 2, 40, 20, PALETTE.neonYellow, 'center', true);
     text(ctx, job.stage === 'pickup' ? 'Pick up the rider' : 'Drop the rider off', VIEW.width / 2, 66, 16, PALETTE.text, 'center');
   } else if (state.storyDone) {
-    text(ctx, 'Free roam — press E near a taxi fare, or find work at the safehouse', VIEW.width / 2, 40, 16, PALETTE.muted, 'center');
+    text(ctx, 'Free roam — taxi fares keep coming, the city is yours', VIEW.width / 2, 40, 16, PALETTE.muted, 'center');
   } else {
     text(ctx, 'New job waiting at the Marina Safehouse — drive there', VIEW.width / 2, 40, 16, PALETTE.muted, 'center');
   }
