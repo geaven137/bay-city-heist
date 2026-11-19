@@ -28,7 +28,9 @@ function walkToward(game, tx, ty) {
   const dy = ty - p.y;
   const d = Math.hypot(dx, dy);
   if (d < 24) return idleInput();
-  return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0 };
+  // moveWorld: the autopilot steers in world axes (the player steers
+  // camera-relative, but the staging pilot is a director, not a player).
+  return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0, moveWorld: true };
 }
 
 /**

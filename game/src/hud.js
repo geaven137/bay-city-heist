@@ -1,13 +1,13 @@
 // NEON BAY — the HUD and the minimap.
-// Readable at a glance when shrunk: cash top-left, health under it, wanted
-// stars top-right, mission text top-centre, speed bottom-left while driving,
-// and a square minimap bottom-right with roads, the player, police, traffic
-// and the mission marker. A compass arrow points at the mission target.
+// Readable at a glance when shrunk: cash + health top-left, wanted stars
+// top-right, mission text top-centre, a round minimap bottom-left (the
+// street-map style), weapon + ammo bottom-right, speed above it while
+// driving. A compass arrow points at the mission target.
 import { CITY, FONT, PALETTE, VIEW } from './config.js';
 import { missionTarget } from './missions.js';
 import { roadCentresX, roadCentresY } from './world.js';
 
-const MINIMAP = { size: 196, margin: 16 };
+const MINIMAP = { size: 176, margin: 16 };
 
 function text(ctx, value, x, y, size, color, align, bold) {
   ctx.font = `${bold ? '700 ' : ''}${size}px ${FONT}`;
@@ -24,20 +24,26 @@ function bar(ctx, x, y, w, h, ratio, color, back) {
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, ratio)), h);
 }
 
-/** Draw the minimap: the whole city shrunk, with the player at its centre. */
+/** Draw the minimap: the whole city shrunk into a round dial, bottom-left. */
 export function drawMinimap(ctx, state) {
   const size = MINIMAP.size;
-  const x0 = VIEW.width - size - MINIMAP.margin;
+  const x0 = MINIMAP.margin;
   const y0 = VIEW.height - size - MINIMAP.margin;
   const scale = size / Math.max(CITY.width, CITY.height);
+  const cx = x0 + size / 2;
+  const cy = y0 + size / 2;
   ctx.fillStyle = 'rgba(10, 12, 20, 0.85)';
-  ctx.fillRect(x0 - 4, y0 - 4, size + 8, size + 8);
+  ctx.beginPath();
+  ctx.arc(cx, cy, size / 2 + 4, 0, Math.PI * 2);
+  ctx.fill();
   ctx.strokeStyle = PALETTE.panelEdge;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x0 - 4, y0 - 4, size + 8, size + 8);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, size / 2 + 4, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.save();
   ctx.beginPath();
-  ctx.rect(x0, y0, size, size);
+  ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
   ctx.clip();
   // Water + sand along the south edge.
   ctx.fillStyle = PALETTE.water;
@@ -98,7 +104,6 @@ export function drawHud(ctx, state, speedKmh) {
   text(ctx, `$${state.money}`, 24, 44, 34, PALETTE.money, 'left', true);
   bar(ctx, 24, 56, 220, 14, state.health / 100, state.health > 30 ? '#7ee787' : '#ff5a5a');
   text(ctx, `HP ${Math.ceil(state.health)}`, 24, 92, 15, PALETTE.text, 'left');
-  text(ctx, `AMMO ${state.ammo}`, 24, 112, 15, PALETTE.text, 'left');
   // Wanted stars, top-right.
   const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
   text(ctx, stars, VIEW.width - 24, 44, 30, state.wanted > 0 ? '#ff5a5a' : 'rgba(244,246,250,0.35)', 'right', true);
@@ -118,13 +123,17 @@ export function drawHud(ctx, state, speedKmh) {
   } else {
     text(ctx, 'New job waiting at the Marina Safehouse — drive there', VIEW.width / 2, 40, 16, PALETTE.muted, 'center');
   }
-  // Speed, bottom-left, while driving.
+  // Weapon + ammo, bottom-right; speed above it while driving.
   if (speedKmh !== null) {
-    text(ctx, `${Math.round(speedKmh)}`, 24, VIEW.height - 52, 44, PALETTE.text, 'left', true);
-    text(ctx, 'km/h', 24, VIEW.height - 28, 15, PALETTE.muted, 'left');
-    text(ctx, 'W/S gas • A/D steer • SHIFT handbrake • E exit', 24, VIEW.height - 96, 14, PALETTE.muted, 'left');
+    text(ctx, `${Math.round(speedKmh)}`, VIEW.width - 24, VIEW.height - 108, 44, PALETTE.text, 'right', true);
+    text(ctx, 'km/h', VIEW.width - 24, VIEW.height - 84, 15, PALETTE.muted, 'right');
+  }
+  text(ctx, 'PISTOL', VIEW.width - 24, VIEW.height - 52, 15, PALETTE.muted, 'right', true);
+  text(ctx, `${state.ammo}`, VIEW.width - 24, VIEW.height - 20, 30, state.ammo > 0 ? PALETTE.text : '#ff5a5a', 'right', true);
+  if (speedKmh !== null) {
+    text(ctx, 'W/S gas • A/D steer • SHIFT handbrake • E exit', VIEW.width / 2, VIEW.height - 28, 14, PALETTE.muted, 'center');
   } else {
-    text(ctx, 'WASD move • SHIFT run • SPACE punch • CLICK shoot • E steal car', 24, VIEW.height - 28, 14, PALETTE.muted, 'left');
+    text(ctx, 'WASD move • MOUSE look • RIGHT-CLICK aim • CLICK shoot • Q swap shoulder • E steal car', VIEW.width / 2, VIEW.height - 28, 14, PALETTE.muted, 'center');
   }
   drawMinimap(ctx, state);
   // Mission compass arrow at the screen edge.
@@ -165,4 +174,32 @@ export function drawHud(ctx, state, speedKmh) {
     ctx.fillStyle = `rgba(255, 40, 40, ${state.flash * 0.25})`;
     ctx.fillRect(0, 0, VIEW.width, VIEW.height);
   }
+}
+
+/** Centre crosshair for third-person aiming: a dot on foot, four arms when aiming. */
+export function drawCrosshair(ctx, state) {
+  const p = state.player;
+  if (!p.onFoot) return;
+  const cx = VIEW.width / 2;
+  const cy = VIEW.height / 2;
+  const spread = 6 + (p.shootTimer > 0 ? 14 : 0) + (p.moving ? 5 : 0);
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = state.ammo > 0 ? '#f4f6fa' : '#ff5a5a';
+  ctx.beginPath();
+  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+  ctx.fill();
+  if (!p.aiming) return;
+  ctx.strokeStyle = '#f4f6fa';
+  ctx.lineWidth = 2;
+  const arm = 9;
+  ctx.beginPath();
+  ctx.moveTo(cx - spread - arm, cy); ctx.lineTo(cx - spread, cy);
+  ctx.moveTo(cx + spread, cy); ctx.lineTo(cx + spread + arm, cy);
+  ctx.moveTo(cx, cy - spread - arm); ctx.lineTo(cx, cy - spread);
+  ctx.moveTo(cx, cy + spread); ctx.lineTo(cx, cy + spread + arm);
+  ctx.stroke();
 }

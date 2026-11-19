@@ -1,12 +1,13 @@
 // NEON BAY — drawing only: the world state and the current screen in,
-// pixels out. Top-down 2.5D: buildings get a fake height (roof offset from
-// the wall), the camera follows the player, and a dusk lighting layer cuts
-// radial holes of light around street lamps, headlights and neon signs,
-// with red-blue siren glow on police cars. Flat procedural shapes only.
+// pixels out. Third-person view: a raycast city (walls as textured
+// vertical strips, floor-cast streets, billboard sprites), the player
+// seen from behind at the bottom of the frame, over-the-shoulder when
+// aiming. The simulation stays top-down 2D; only the camera changed.
+// Flat procedural shapes only, no assets, no network.
 import { CITY, FONT, PALETTE, VIEW } from './config.js';
-import { drawHud } from './hud.js';
+import { drawCrosshair, drawHud } from './hud.js';
 import { missionTarget } from './missions.js';
-import { roadCentresX, roadCentresY } from './world.js';
+import { isOnRoad, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -14,15 +15,101 @@ export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const SCREEN_BUSTED = 'busted';
 
+// The 3D scene is painted small (640x360) and upscaled; the HUD stays
+// crisp at 1280x720 on top of it.
+const RW = 640;
+const RH = 360;
+const COLS = 160; // wall columns across the scene
+const CELL = 32; // wall-grid cell, world units
+const EYE = 30; // camera height above the street, world units
+const WALL = 2.4; // building height multiplier: top-down heights read short
+const FOG = '13,15,26'; // dusk fog colour (rgb triplet for rgba strings)
+
 const PANEL = { width: 640, top: 150, line: 32, bottom: 76 };
+
+function wrapAngle(a) {
+  while (a > Math.PI) a -= Math.PI * 2;
+  while (a < -Math.PI) a += Math.PI * 2;
+  return a;
+}
 
 export function createRenderer(canvas) {
   const context = canvas.getContext('2d');
   const view = { scale: 1, x: 0, y: 0 };
-  const dark = document.createElement('canvas');
-  dark.width = VIEW.width;
-  dark.height = VIEW.height;
-  const darkCtx = dark.getContext('2d');
+  const scene = document.createElement('canvas');
+  scene.width = RW;
+  scene.height = RH;
+  const sctx = scene.getContext('2d');
+
+  // Wall grid for the raycaster: cell -> building index + 1 (0 = open).
+  // Rebuilt only when the city object changes.
+  let gridCity = null;
+  let grid = null;
+  let gridW = 0;
+  let gridH = 0;
+  function wallGrid(city) {
+    if (city === gridCity) return;
+    gridCity = city;
+    gridW = Math.ceil(CITY.width / CELL);
+    gridH = Math.ceil(CITY.height / CELL);
+    grid = new Uint16Array(gridW * gridH);
+    for (let i = 0; i < city.buildings.length; i += 1) {
+      const b = city.buildings[i];
+      const x0 = Math.max(0, Math.floor(b.x / CELL));
+      const x1 = Math.min(gridW - 1, Math.floor((b.x + b.w) / CELL));
+      const y0 = Math.max(0, Math.floor(b.y / CELL));
+      const y1 = Math.min(gridH - 1, Math.floor((b.y + b.h) / CELL));
+      for (let gy = y0; gy <= y1; gy += 1) {
+        for (let gx = x0; gx <= x1; gx += 1) grid[gy * gridW + gx] = i + 1;
+      }
+    }
+  }
+
+  // Procedural sprite canvases, cached by look. Drawn at 2x so a sprite
+  // close to the camera stays sharp instead of a blurry blow-up.
+  const sprites = new Map();
+  function sprite(key, w, h, draw) {
+    if (!sprites.has(key)) {
+      const c = document.createElement('canvas');
+      c.width = w * 2;
+      c.height = h * 2;
+      const g = c.getContext('2d');
+      g.scale(2, 2);
+      draw(g, w, h);
+      sprites.set(key, c);
+    }
+    return sprites.get(key);
+  }
+
+  // Wall-face texture per building look: lit windows on the wall colour,
+  // a neon band near the top for neon buildings, roof colour at the cap.
+  const wallTex = new Map();
+  function textureFor(b) {
+    const key = `${b.color}|${b.roof}|${b.neon ? 1 : 0}`;
+    if (wallTex.has(key)) return wallTex.get(key);
+    const c = document.createElement('canvas');
+    c.width = 48;
+    c.height = 96;
+    const g = c.getContext('2d');
+    g.fillStyle = b.color;
+    g.fillRect(0, 0, 48, 96);
+    g.fillStyle = 'rgba(0,0,0,0.22)';
+    for (let r = 0; r < 6; r += 1) {
+      for (let col = 0; col < 3; col += 1) {
+        if (((r * 3 + col) * 37 + b.x) % 5 < 2) continue; // some windows dark
+        g.fillStyle = (r + col) % 3 === 0 ? 'rgba(255,214,120,0.85)' : 'rgba(20,26,44,0.8)';
+        g.fillRect(5 + col * 14, 12 + r * 13, 9, 8);
+      }
+    }
+    if (b.neon) {
+      g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
+      g.fillRect(0, 6, 48, 4);
+    }
+    g.fillStyle = b.roof;
+    g.fillRect(0, 0, 48, 5);
+    wallTex.set(key, c);
+    return c;
+  }
 
   function resize() {
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -45,275 +132,421 @@ export function createRenderer(canvas) {
     context.fillText(value, x, y);
   }
 
-  /** World → screen coordinates for the current camera. */
-  function toScreen(wx, wy, cam) {
-    return { x: wx - cam.x + VIEW.width / 2, y: wy - cam.y + VIEW.height / 2 };
+  /** Ground colour at a world point: water, sand, road, sidewalk, park, grass.
+   * The centre line is solid and only in the near field: dashes alias
+   * into wide yellow bands when the road runs diagonally across the view,
+   * and far away the floor samples are wider than any marking. */
+  function floorColor(city, wx, wy, near) {
+    if (wy >= CITY.beachY) return PALETTE.water;
+    if (wy >= CITY.beachY - 60) return PALETTE.sand;
+    if (isOnRoad(wx, wy)) {
+      if (near
+        && (Math.abs(wx - nearestCentre(roadCentresX, wx)) < 2
+          || Math.abs(wy - nearestCentre(roadCentresY, wy)) < 2)) return PALETTE.roadLine;
+      return PALETTE.asphalt;
+    }
+    if (Math.abs(wx - nearestCentre(roadCentresX, wx)) <= CITY.road / 2 + 10
+      || Math.abs(wy - nearestCentre(roadCentresY, wy)) <= CITY.road / 2 + 10) {
+      return PALETTE.sidewalk;
+    }
+    for (const park of city.parks) {
+      if (wx >= park.x && wx <= park.x + park.w && wy >= park.y && wy <= park.y + park.h) return PALETTE.park;
+    }
+    return PALETTE.grass;
   }
 
-  function drawGround(state, cam, left, top, right, bottom) {
-    context.fillStyle = PALETTE.grass;
-    context.fillRect(left, top, right - left, bottom - top);
-    // Beach + water along the south edge.
-    context.fillStyle = PALETTE.sand;
-    context.fillRect(left, Math.max(top, CITY.beachY - 60), right - left, 60);
-    context.fillStyle = PALETTE.water;
-    context.fillRect(left, Math.max(top, CITY.beachY), right - left, bottom - Math.max(top, CITY.beachY));
-    context.fillStyle = 'rgba(255,255,255,0.12)';
-    for (let x = left - ((left / 90) % 1) * 90; x < right; x += 90) {
-      context.fillRect(x, CITY.beachY + 14 + ((x / 90) % 3) * 8, 46, 3);
+  function drawSky(camAngle, fov, horizon, time) {
+    const g = sctx.createLinearGradient(0, 0, 0, horizon);
+    g.addColorStop(0, '#160f38');
+    g.addColorStop(0.6, '#4a2158');
+    g.addColorStop(1, '#ff8a5c');
+    sctx.fillStyle = g;
+    sctx.fillRect(0, 0, RW, horizon + 1);
+    // Stars in the upper sky: fixed positions from an index hash.
+    sctx.fillStyle = '#f4f6fa';
+    for (let i = 0; i < 42; i += 1) {
+      const sx = (i * 97 + 31) % RW;
+      const sy = (i * 53 + 11) % 110;
+      sctx.globalAlpha = 0.25 + ((i * 13) % 10) / 18;
+      sctx.fillRect(sx, sy, 2, 2);
     }
-    // Palms along the beach: a starburst of fronds, seen from above.
-    for (const palm of state.city.palms) {
-      if (palm.x < left || palm.x > right || palm.y < top || palm.y > bottom) continue;
-      context.fillStyle = '#1f7a37';
+    sctx.globalAlpha = 1;
+    // Low sun, fixed to the west: it slides across the sky as you turn.
+    const tanHalf = Math.tan(fov / 2);
+    const sunA = wrapAngle(Math.PI * 0.75 - camAngle);
+    if (Math.abs(sunA) < fov / 2 + 0.25) {
+      const sunX = RW / 2 + (Math.tan(sunA) / tanHalf) * (RW / 2);
+      const sunY = horizon - 26;
+      const glow = sctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 90);
+      glow.addColorStop(0, 'rgba(255,190,120,0.75)');
+      glow.addColorStop(1, 'rgba(255,190,120,0)');
+      sctx.fillStyle = glow;
+      sctx.fillRect(sunX - 90, sunY - 90, 180, 180);
+      sctx.fillStyle = '#ffd9a0';
+      sctx.beginPath();
+      sctx.arc(sunX, sunY, 15, 0, Math.PI * 2);
+      sctx.fill();
+    }
+    // Haze band on the horizon.
+    const haze = sctx.createLinearGradient(0, horizon - 14, 0, horizon + 6);
+    haze.addColorStop(0, 'rgba(255,138,92,0)');
+    haze.addColorStop(1, 'rgba(255,138,92,0.35)');
+    sctx.fillStyle = haze;
+    sctx.fillRect(0, horizon - 14, RW, 20);
+  }
+
+  /** One DDA raycast; returns the hit building, distance and wall fraction. */
+  function castRay(cam, rx, ry) {
+    const rdx = rx / CELL;
+    const rdy = ry / CELL;
+    let mapX = Math.floor(cam.x / CELL);
+    let mapY = Math.floor(cam.y / CELL);
+    const dDX = Math.abs(rdx) < 1e-9 ? 1e9 : Math.abs(1 / rdx);
+    const dDY = Math.abs(rdy) < 1e-9 ? 1e9 : Math.abs(1 / rdy);
+    const stepX = rdx < 0 ? -1 : 1;
+    const stepY = rdy < 0 ? -1 : 1;
+    let sideX = rdx < 0 ? (cam.x / CELL - mapX) * dDX : (mapX + 1 - cam.x / CELL) * dDX;
+    let sideY = rdy < 0 ? (cam.y / CELL - mapY) * dDY : (mapY + 1 - cam.y / CELL) * dDY;
+    let side = 0;
+    let dist = 0;
+    for (let i = 0; i < 128; i += 1) {
+      if (sideX < sideY) { sideX += dDX; mapX += stepX; side = 0; dist = sideX - dDX; }
+      else { sideY += dDY; mapY += stepY; side = 1; dist = sideY - dDY; }
+      if (mapX < 0 || mapY < 0 || mapX >= gridW || mapY >= gridH) return null;
+      const hit = grid[mapY * gridW + mapX];
+      if (hit) {
+        const worldDist = dist * CELL;
+        const rayLen = Math.hypot(rx, ry);
+        const perp = worldDist * (rx * Math.cos(cam.angle) + ry * Math.sin(cam.angle)) / rayLen;
+        const along = side === 0
+          ? (cam.y + worldDist * ry / rayLen) / CELL
+          : (cam.x + worldDist * rx / rayLen) / CELL;
+        return { building: gridCity.buildings[hit - 1], perp, side, frac: along - Math.floor(along) };
+      }
+    }
+    return null;
+  }
+
+  function drawWalls(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg) {
+    const colW = RW / COLS;
+    for (let c = 0; c < COLS; c += 1) {
+      const camX = (2 * c) / COLS - 1;
+      const rx = dirX + planeX * camX;
+      const ry = dirY + planeY * camX;
+      const hit = castRay(cam, rx, ry);
+      if (!hit || hit.perp < 4) { zbuf[c] = 1e9; colBldg[c] = null; continue; }
+      zbuf[c] = hit.perp;
+      colBldg[c] = hit.building;
+      const b = hit.building;
+      const hWorld = b.height * WALL;
+      const y0 = horizon - ((hWorld - EYE) * proj) / hit.perp;
+      const y1 = horizon + (EYE * proj) / hit.perp;
+      const tex = textureFor(b);
+      const sx = Math.floor(hit.frac * tex.width);
+      sctx.drawImage(tex, sx, 0, 1, tex.height, c * colW, y0, colW + 0.5, y1 - y0);
+      // Side shading + distance fog.
+      const fog = Math.min(0.5, hit.perp / 950);
+      sctx.fillStyle = hit.side === 1 ? `rgba(${FOG},${(fog + 0.1).toFixed(3)})` : `rgba(${FOG},${fog.toFixed(3)})`;
+      sctx.fillRect(c * colW, y0, colW + 0.5, y1 - y0);
+    }
+  }
+
+  function drawFloor(state, cam, dirX, dirY, planeX, planeY, proj, horizon) {
+    sctx.fillStyle = PALETTE.grass;
+    sctx.fillRect(0, horizon, RW, RH - horizon);
+    const leftX = dirX - planeX;
+    const leftY = dirY - planeY;
+    const rightX = dirX + planeX;
+    const rightY = dirY + planeY;
+    const SAMPLES = 80;
+    const stepX = (rightX - leftX) / SAMPLES;
+    const stepY = (rightY - leftY) / SAMPLES;
+    const sw = RW / SAMPLES;
+    for (let y = horizon + 2; y < RH; y += 2) {
+      const p = y - horizon;
+      let rowDist = (EYE * proj) / p;
+      if (rowDist > 900) rowDist = 900;
+      let fx = cam.x + leftX * rowDist;
+      let fy = cam.y + leftY * rowDist;
+      const dx = rowDist * stepX;
+      const dy = rowDist * stepY;
+      for (let s = 0; s < SAMPLES; s += 1) {
+        sctx.fillStyle = floorColor(state.city, fx, fy, rowDist < 380);
+        sctx.fillRect(s * sw, y, sw + 0.5, 2);
+        fx += dx;
+        fy += dy;
+      }
+      // Fog grows toward the horizon.
+      const fog = Math.min(0.55, rowDist / 900) * 0.55;
+      if (fog > 0.02) {
+        sctx.fillStyle = `rgba(${FOG},${fog.toFixed(3)})`;
+        sctx.fillRect(0, y, RW, 2);
+      }
+    }
+  }
+
+  /** Project a world point to screen space; null when behind the camera
+   * or so close the sprite would be a giant blur (near-plane clip). */
+  function project(cam, dirX, dirY, planeX, planeY, proj, horizon, x, y, lift, worldH, aspect) {
+    const dx = x - cam.x;
+    const dy = y - cam.y;
+    const depth = dx * dirX + dy * dirY;
+    if (depth < 40) return null;
+    const lat = dx * planeX + dy * planeY;
+    const sx = (RW / 2) * (1 + lat / depth);
+    if (sx < -160 || sx > RW + 160) return null;
+    const bottom = horizon + ((EYE - lift) * proj) / depth;
+    const h = (worldH * proj) / depth;
+    return { sx, bottom, h, w: h * aspect, depth };
+  }
+
+  function drawSpriteEntry(entry, zbuf) {
+    const { canvas: img, sx, bottom, h, w, depth } = entry;
+    // A sprite close to the camera and near a frame edge is a trunk or
+    // a bumper at arm's length, half out of shot: clip it out instead
+    // of painting a giant blur at the edge. A sprite centred in front
+    // of the player stays (that is how close things look — and it is
+    // the one you are about to punch or shoot).
+    if (depth < 75 && (sx < RW * 0.2 || sx > RW * 0.8)) return;
+    const x0 = Math.round(sx - w / 2);
+    const x1 = Math.round(sx + w / 2);
+    const y0 = Math.round(bottom - h);
+    if (x1 < 0 || x0 >= RW || y0 >= RH) return;
+    let occluded = false;
+    for (let cx = Math.max(0, x0); cx < Math.min(RW, x1); cx += 1) {
+      if (depth >= zbuf[Math.floor((cx / RW) * COLS)]) { occluded = true; break; }
+    }
+    if (!occluded) {
+      sctx.drawImage(img, x0, y0, w, h);
+      return;
+    }
+    const srcW = Math.max(1, img.width / w);
+    for (let cx = Math.max(0, x0); cx < Math.min(RW, x1); cx += 1) {
+      if (depth < zbuf[Math.floor((cx / RW) * COLS)]) {
+        const srcX = ((cx - x0) / w) * img.width;
+        sctx.drawImage(img, srcX, 0, srcW, img.height, cx, y0, 1, h);
+      }
+    }
+  }
+
+  function carSprite(color, police) {
+    return sprite(`car-${police ? 'cop' : color}`, 96, 72, (g, w, h) => {
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      g.beginPath(); g.ellipse(w / 2, h - 8, 42, 8, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(6, 26, 84, 34, 8); g.fill();
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(18, 10, 60, 24, 8); g.fill();
+      g.fillStyle = 'rgba(20,26,38,0.9)';
+      g.beginPath(); g.roundRect(24, 14, 48, 16, 4); g.fill();
+      g.fillStyle = '#ff2e2e';
+      g.fillRect(8, 40, 10, 6);
+      g.fillRect(78, 40, 10, 6);
+      g.fillStyle = 'rgba(255,255,255,0.25)';
+      g.fillRect(30, 30, 36, 4);
+      if (police) {
+        g.fillStyle = '#ff2e2e';
+        g.fillRect(38, 6, 10, 6);
+        g.fillStyle = '#2e6bff';
+        g.fillRect(50, 6, 10, 6);
+      }
+    });
+  }
+
+  function pedSprite(color) {
+    return sprite(`ped-${color}`, 48, 96, (g, w, h) => {
+      g.fillStyle = '#1e2a3a';
+      g.fillRect(16, 58, 7, 34);
+      g.fillRect(25, 58, 7, 34);
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(12, 26, 24, 36, 8); g.fill();
+      g.fillStyle = '#e8b890';
+      g.beginPath(); g.arc(24, 16, 10, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#1e2a3a';
+      g.beginPath(); g.arc(24, 12, 10, Math.PI, 0); g.fill();
+    });
+  }
+
+  function palmSprite() {
+    return sprite('palm', 64, 96, (g, w, h) => {
+      g.strokeStyle = '#6b4a2f';
+      g.lineWidth = 5;
+      g.beginPath(); g.moveTo(32, 94); g.lineTo(29, 58); g.lineTo(34, 26); g.stroke();
+      g.fillStyle = '#1f7a37';
       for (let f = 0; f < 6; f += 1) {
-        const a = (f / 6) * Math.PI * 2 + palm.lean;
-        context.beginPath();
-        context.ellipse(palm.x + Math.cos(a) * 10, palm.y + Math.sin(a) * 10, 13, 5, a, 0, Math.PI * 2);
-        context.fill();
+        const a = (f / 6) * Math.PI * 2 - 0.6;
+        g.beginPath();
+        g.ellipse(34 + Math.cos(a) * 18, 26 + Math.sin(a) * 10, 20, 6, a, 0, Math.PI * 2);
+        g.fill();
       }
-      context.fillStyle = '#6b4a2f';
-      context.beginPath(); context.arc(palm.x, palm.y, 4, 0, Math.PI * 2); context.fill();
-    }
-    // Parks.
-    for (const park of state.city.parks) {
-      if (park.x > right || park.x + park.w < left || park.y > bottom || park.y + park.h < top) continue;
-      context.fillStyle = PALETTE.park;
-      context.fillRect(park.x, park.y, park.w, park.h);
-      for (const t of park.trees) {
-        context.fillStyle = '#2a7a3a';
-        context.beginPath(); context.arc(t.x, t.y, t.r, 0, Math.PI * 2); context.fill();
-        context.fillStyle = '#3f9a4f';
-        context.beginPath(); context.arc(t.x - 3, t.y - 3, t.r * 0.6, 0, Math.PI * 2); context.fill();
+    });
+  }
+
+  function treeSprite() {
+    return sprite('tree', 64, 64, (g, w, h) => {
+      g.fillStyle = '#5a4028';
+      g.fillRect(28, 40, 8, 22);
+      g.fillStyle = '#2a7a3a';
+      g.beginPath(); g.arc(32, 26, 20, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#3f9a4f';
+      g.beginPath(); g.arc(24, 20, 12, 0, Math.PI * 2); g.fill();
+    });
+  }
+
+  function markerSprite() {
+    return sprite('marker', 48, 48, (g, w, h) => {
+      g.fillStyle = 'rgba(255,210,63,0.35)';
+      g.beginPath(); g.arc(24, 24, 20, 0, Math.PI * 2); g.fill();
+      g.fillStyle = PALETTE.neonYellow;
+      g.save();
+      g.translate(24, 24);
+      g.rotate(Math.PI / 4);
+      g.fillRect(-10, -10, 20, 20);
+      g.restore();
+    });
+  }
+
+  function playerSprite(aiming) {
+    return sprite(`player-${aiming ? 'aim' : 'walk'}`, 96, 128, (g, w, h) => {
+      g.fillStyle = '#1e2a3a'; // legs
+      g.fillRect(36, 84, 10, 40);
+      g.fillRect(50, 84, 10, 40);
+      g.fillStyle = PALETTE.player; // jacket, seen from behind
+      g.beginPath(); g.roundRect(28, 44, 40, 44, 10); g.fill();
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      g.fillRect(28, 44, 40, 6);
+      if (aiming) {
+        g.fillStyle = '#e8b890'; // arm raised, pistol forward (up, away)
+        g.fillRect(58, 30, 8, 22);
+        g.fillStyle = '#22262e';
+        g.fillRect(60, 18, 5, 16);
+        g.fillStyle = '#ffd23f';
+        g.fillRect(60, 16, 5, 3);
+      } else {
+        g.fillStyle = '#e8b890';
+        g.fillRect(24, 48, 7, 26);
+        g.fillRect(65, 48, 7, 26);
       }
-    }
-    // Sidewalks, then asphalt, then centre dashes.
-    for (const cx of roadCentresX) {
-      if (cx < left - 80 || cx > right + 80) continue;
-      context.fillStyle = PALETTE.sidewalk;
-      context.fillRect(cx - CITY.road / 2 - 10, top, CITY.road + 20, bottom - top);
-      context.fillStyle = PALETTE.asphalt;
-      context.fillRect(cx - CITY.road / 2, top, CITY.road, bottom - top);
-    }
-    for (const cy of roadCentresY) {
-      if (cy < top - 80 || cy > bottom + 80) continue;
-      context.fillStyle = PALETTE.sidewalk;
-      context.fillRect(left, cy - CITY.road / 2 - 10, right - left, CITY.road + 20);
-      context.fillStyle = PALETTE.asphalt;
-      context.fillRect(left, cy - CITY.road / 2, right - left, CITY.road);
-    }
-    context.fillStyle = PALETTE.roadLine;
-    for (const cx of roadCentresX) {
-      if (cx < left - 80 || cx > right + 80) continue;
-      for (let y = Math.floor(top / 48) * 48; y < bottom; y += 48) context.fillRect(cx - 2, y, 4, 22);
-    }
-    for (const cy of roadCentresY) {
-      if (cy < top - 80 || cy > bottom + 80) continue;
-      for (let x = Math.floor(left / 48) * 48; x < right; x += 48) context.fillRect(x, cy - 2, 22, 4);
-    }
+      g.fillStyle = '#e8b890'; // head + hair
+      g.beginPath(); g.arc(48, 30, 13, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#14181f';
+      g.beginPath(); g.arc(48, 26, 13, Math.PI, 0); g.fill();
+    });
   }
 
-  function drawBuilding(b, time) {
-    const ox = -b.height * 0.32;
-    const oy = -b.height * 0.85;
-    // South + west walls (the fake 2.5D depth).
-    context.fillStyle = 'rgba(0,0,0,0.28)';
-    context.beginPath();
-    context.moveTo(b.x, b.y + b.h); context.lineTo(b.x + b.w, b.y + b.h);
-    context.lineTo(b.x + b.w + ox, b.y + b.h + oy); context.lineTo(b.x + ox, b.y + b.h + oy);
-    context.closePath(); context.fill();
-    context.fillStyle = 'rgba(0,0,0,0.18)';
-    context.beginPath();
-    context.moveTo(b.x, b.y); context.lineTo(b.x, b.y + b.h);
-    context.lineTo(b.x + ox, b.y + b.h + oy); context.lineTo(b.x + ox, b.y + oy);
-    context.closePath(); context.fill();
-    // Roof.
-    context.fillStyle = b.roof;
-    context.fillRect(b.x + ox, b.y + oy, b.w, b.h);
-    context.strokeStyle = 'rgba(255,255,255,0.14)';
-    context.lineWidth = 2;
-    context.strokeRect(b.x + ox, b.y + oy, b.w, b.h);
-    // Rooftop details: vents, a pool on some roofs.
-    context.fillStyle = 'rgba(0,0,0,0.25)';
-    context.fillRect(b.x + ox + 14, b.y + oy + 14, 22, 16);
-    context.fillRect(b.x + ox + b.w - 40, b.y + oy + b.h - 30, 26, 16);
-    if (b.neon) {
-      const flicker = 0.6 + 0.4 * Math.sin(time * 3 + b.x);
-      context.globalAlpha = flicker;
-      context.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
-      context.fillRect(b.x + ox + 8, b.y + oy + b.h - 10, b.w - 16, 5);
-      context.globalAlpha = 1;
-    }
-    if (b.beachfront) {
-      // Stepped art-deco parapet bands on the pastel roof edge.
-      context.fillStyle = 'rgba(255,255,255,0.28)';
-      context.fillRect(b.x + ox + 10, b.y + oy + 6, b.w - 20, 4);
-      context.fillStyle = 'rgba(0,0,0,0.22)';
-      context.fillRect(b.x + ox + b.w / 2 - 14, b.y + oy + 2, 28, 8);
-    }
-    if (b.sign) {
-      // Generic neon sign on the roof: a plain word in pink or cyan. On a
-      // named building it sits at the roof's top edge, clear of the name.
-      const flicker = 0.65 + 0.35 * Math.sin(time * 3 + b.x * 0.7);
-      context.globalAlpha = flicker;
-      context.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
-      context.font = `700 14px ${FONT}`;
-      context.textAlign = 'center';
-      context.fillText(b.sign, b.x + b.w / 2 + ox, b.y + oy + (b.name ? 18 : b.h / 2));
-      context.globalAlpha = 1;
-    }
-    if (b.name) {
-      context.fillStyle = PALETTE.text;
-      context.font = `700 15px ${FONT}`;
-      context.textAlign = 'center';
-      context.fillText(b.name, b.x + b.w / 2 + ox, b.y + oy + b.h / 2);
-    }
+  function playerCarSprite(color) {
+    return sprite(`rear-${color}`, 160, 110, (g, w, h) => {
+      g.fillStyle = 'rgba(0,0,0,0.4)';
+      g.beginPath(); g.ellipse(w / 2, h - 6, 72, 10, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = color;
+      g.beginPath(); g.roundRect(10, 52, 140, 44, 10); g.fill();
+      g.beginPath(); g.roundRect(30, 22, 100, 36, 10); g.fill();
+      g.fillStyle = 'rgba(20,26,38,0.92)';
+      g.beginPath(); g.roundRect(38, 26, 84, 26, 6); g.fill();
+      g.fillStyle = '#ff2e2e';
+      g.fillRect(14, 62, 18, 8);
+      g.fillRect(128, 62, 18, 8);
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      g.fillRect(56, 56, 48, 4);
+      g.fillStyle = '#c8ccd4';
+      g.fillRect(66, 84, 28, 8);
+    });
   }
 
-  function drawCar(car, time) {
-    context.save();
-    context.translate(car.x, car.y);
-    // Shadow.
-    context.fillStyle = 'rgba(0,0,0,0.35)';
-    context.beginPath(); context.ellipse(2, 4, 30, 16, car.angle, 0, Math.PI * 2); context.fill();
-    context.rotate(car.angle);
-    context.fillStyle = car.wrecked ? '#2a2d33' : car.color;
-    context.beginPath();
-    context.roundRect(-27, -13, 54, 26, 7);
-    context.fill();
-    context.fillStyle = car.wrecked ? '#1a1c20' : 'rgba(20,26,38,0.85)';
-    context.beginPath(); context.roundRect(-8, -11, 18, 22, 4); context.fill();
-    context.fillStyle = 'rgba(255,255,255,0.25)';
-    context.fillRect(6, -11, 4, 22);
-    // Headlights.
-    context.fillStyle = '#ffe9a8';
-    context.fillRect(25, -10, 3, 5);
-    context.fillRect(25, 5, 3, 5);
-    if (car.kind === 'police') {
-      const phase = Math.floor(time * 4) % 2 === 0;
-      context.fillStyle = phase ? '#ff2e2e' : '#2e6bff';
-      context.fillRect(-4, -13, 8, 5);
-      context.fillStyle = phase ? '#2e6bff' : '#ff2e2e';
-      context.fillRect(-4, 8, 8, 5);
-      // Siren glow on the ground.
-      context.restore();
-      context.save();
-      context.globalCompositeOperation = 'lighter';
-      const glow = context.createRadialGradient(car.x, car.y, 4, car.x, car.y, 90);
-      glow.addColorStop(0, phase ? 'rgba(255,46,46,0.30)' : 'rgba(46,107,255,0.30)');
-      glow.addColorStop(1, 'rgba(0,0,0,0)');
-      context.fillStyle = glow;
-      context.beginPath(); context.arc(car.x, car.y, 90, 0, Math.PI * 2); context.fill();
-      context.restore();
-      context.save();
-      context.translate(car.x, car.y);
-      context.rotate(car.angle);
-    }
-    if (car.kind === 'player') {
-      context.strokeStyle = PALETTE.neonCyan;
-      context.lineWidth = 2;
-      context.beginPath(); context.roundRect(-29, -15, 58, 30, 8); context.stroke();
-    }
-    context.restore();
-  }
-
-  function drawPed(ped) {
-    context.save();
-    context.translate(ped.x, ped.y);
-    if (ped.down) {
-      context.rotate(ped.angle + Math.PI / 2);
-      context.fillStyle = ped.color;
-      context.fillRect(-12, -5, 24, 10);
-      context.fillStyle = '#e8b890';
-      context.beginPath(); context.arc(14, 0, 6, 0, Math.PI * 2); context.fill();
-    } else {
-      context.fillStyle = 'rgba(0,0,0,0.3)';
-      context.beginPath(); context.ellipse(1, 3, 10, 6, 0, 0, Math.PI * 2); context.fill();
-      context.fillStyle = ped.color;
-      context.beginPath(); context.arc(0, 0, 9, 0, Math.PI * 2); context.fill();
-      context.fillStyle = '#e8b890';
-      context.beginPath(); context.arc(Math.cos(ped.angle) * 4, Math.sin(ped.angle) * 4, 5, 0, Math.PI * 2); context.fill();
-    }
-    context.restore();
-  }
-
-  function drawPlayer(state, time) {
+  function drawSprites(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, time) {
+    const entries = [];
     const p = state.player;
-    if (!p.onFoot) return;
-    context.save();
-    context.translate(p.x, p.y);
-    const blink = p.hurtTimer > 0 && Math.floor(time * 12) % 2 === 0;
-    if (!blink) {
-      context.fillStyle = 'rgba(0,0,0,0.35)';
-      context.beginPath(); context.ellipse(1, 4, 12, 7, 0, 0, Math.PI * 2); context.fill();
-      context.rotate(p.angle);
-      context.fillStyle = PALETTE.player;
-      context.beginPath(); context.arc(0, 0, 12, 0, Math.PI * 2); context.fill();
-      context.fillStyle = '#e8b890';
-      context.beginPath(); context.arc(6, 0, 6, 0, Math.PI * 2); context.fill();
-      context.fillStyle = '#1e2a3a';
-      context.fillRect(-12, -4, 8, 8);
+    for (const car of state.cars) {
+      if (car.kind === 'player') continue;
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, car.x, car.y, 0, 46, 1.33);
+      if (e) entries.push({ ...e, canvas: carSprite(car.color, car.kind === 'police') });
     }
-    context.restore();
-  }
-
-  function drawMarkers(state, time) {
+    for (const ped of state.peds) {
+      if (ped.down) continue;
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 46, 0.5);
+      if (e) entries.push({ ...e, canvas: pedSprite(ped.color) });
+    }
+    for (const palm of state.city.palms) {
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, palm.x, palm.y, 0, 90, 0.67);
+      if (e) entries.push({ ...e, canvas: palmSprite() });
+    }
+    for (const park of state.city.parks) {
+      for (const t of park.trees) {
+        const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, t.x, t.y, 0, 60, 1);
+        if (e) entries.push({ ...e, canvas: treeSprite() });
+      }
+    }
+    // Mission marker: a beam of light plus a floating diamond.
     const target = missionTarget(state);
     const job = state.sideJob && !state.mission
       ? (state.sideJob.stage === 'pickup' ? state.sideJob.pickup : state.sideJob.drop) : null;
     const mark = target ? { x: target.x, y: target.y } : job;
-    if (!mark) return;
-    const pulse = 1 + 0.25 * Math.sin(time * 4);
-    context.strokeStyle = PALETTE.neonYellow;
-    context.lineWidth = 4;
-    context.beginPath(); context.arc(mark.x, mark.y, 34 * pulse, 0, Math.PI * 2); context.stroke();
-    context.fillStyle = 'rgba(255,210,63,0.25)';
-    context.beginPath(); context.arc(mark.x, mark.y, 34 * pulse, 0, Math.PI * 2); context.fill();
-    // A beam of light so the target reads from far away.
-    context.fillStyle = 'rgba(255,210,63,0.10)';
-    context.fillRect(mark.x - 6, mark.y - 320, 12, 320);
+    if (mark) {
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, mark.x, mark.y, 70, 44, 1);
+      if (e) entries.push({ ...e, canvas: markerSprite() });
+      const base = project(cam, dirX, dirY, planeX, planeY, proj, horizon, mark.x, mark.y, 0, 10, 1);
+      if (base) {
+        const beamW = Math.max(2, 260 / base.depth);
+        sctx.fillStyle = 'rgba(255,210,63,0.10)';
+        sctx.fillRect(base.sx - beamW / 2, horizon - 160, beamW, 160);
+      }
+    }
+    for (const b of state.bullets) {
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, b.x, b.y, 20, 10, 0.4);
+      if (e) {
+        sctx.fillStyle = '#ffd23f';
+        sctx.fillRect(e.sx - 1, e.bottom - e.h, 2, e.h);
+      }
+    }
+    for (const pt of state.particles) {
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, pt.x, pt.y, 6, pt.size * 2, 1);
+      if (e) {
+        sctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
+        sctx.fillStyle = pt.color;
+        sctx.fillRect(e.sx - e.w / 2, e.bottom - e.h, Math.max(1, e.w), Math.max(1, e.h));
+      }
+    }
+    sctx.globalAlpha = 1;
+    entries.sort((a, b) => b.depth - a.depth);
+    for (const e of entries) drawSpriteEntry(e, zbuf);
   }
 
-  /** Dusk lighting: darken the world, then punch holes of light back in. */
-  function drawLighting(state, cam, time) {
-    darkCtx.setTransform(1, 0, 0, 1, 0, 0);
-    darkCtx.clearRect(0, 0, VIEW.width, VIEW.height);
-    darkCtx.fillStyle = 'rgba(10, 12, 30, 0.42)';
-    darkCtx.fillRect(0, 0, VIEW.width, VIEW.height);
-    darkCtx.globalCompositeOperation = 'destination-out';
-    const hole = (wx, wy, radius, strength) => {
-      const s = toScreen(wx, wy, cam);
-      if (s.x < -radius || s.x > VIEW.width + radius || s.y < -radius || s.y > VIEW.height + radius) return;
-      const g = darkCtx.createRadialGradient(s.x, s.y, 4, s.x, s.y, radius);
-      g.addColorStop(0, `rgba(0,0,0,${strength})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      darkCtx.fillStyle = g;
-      darkCtx.beginPath(); darkCtx.arc(s.x, s.y, radius, 0, Math.PI * 2); darkCtx.fill();
-    };
+  /** The player from behind (on foot) or their car from behind (driving). */
+  function drawSelf(state, cam, time) {
     const p = state.player;
-    const px = p.car ? p.car.x : p.x;
-    const py = p.car ? p.car.y : p.y;
-    hole(px, py, 170, 0.9);
-    for (const cx of roadCentresX) {
-      for (const cy of roadCentresY) hole(cx, cy, 110, 0.75);
+    if (p.onFoot) {
+      const bob = p.moving ? Math.sin(time * 10) * 2 : 0;
+      const img = playerSprite(!!p.aiming);
+      const w = 150;
+      const h = 200;
+      const x = RW / 2 - w / 2 + cam.shoulder;
+      sctx.drawImage(img, x, RH - h - 4 + bob, w, h);
+    } else if (p.car) {
+      const img = playerCarSprite(p.car.color);
+      const w = 300;
+      const h = 200;
+      sctx.drawImage(img, RW / 2 - w / 2, RH - h - 2, w, h);
     }
-    for (const car of state.cars) {
-      if (car.wrecked) continue;
-      const hx = car.x + Math.cos(car.angle) * 40;
-      const hy = car.y + Math.sin(car.angle) * 40;
-      hole(hx, hy, 70, 0.6);
+  }
+
+  /** Neon signs (HOTEL / BAR / TACOS) painted on the wall that carries them. */
+  function drawSigns(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg) {
+    const seen = new Set();
+    for (let c = 0; c < COLS; c += 1) {
+      const b = colBldg[c];
+      if (!b || !b.sign || seen.has(b)) continue;
+      seen.add(b);
+      const cx = b.x + b.w / 2;
+      const cy = b.y + b.h / 2;
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, cx, cy, b.height * WALL * 0.85, 20, 4);
+      if (!e || e.depth >= zbuf[Math.floor((e.sx / RW) * COLS)]) continue;
+      sctx.font = `700 ${Math.max(10, Math.round(e.h))}px ${FONT}`;
+      sctx.textAlign = 'center';
+      sctx.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
+      sctx.globalAlpha = 0.65 + 0.35 * Math.sin(state.time * 3 + b.x * 0.7);
+      sctx.fillText(b.sign, e.sx, e.bottom);
+      sctx.globalAlpha = 1;
     }
-    for (const b of state.city.buildings) {
-      if (b.neon) hole(b.x + b.w / 2, b.y + b.h / 2, 90, 0.5);
-    }
-    darkCtx.globalCompositeOperation = 'source-over';
-    context.drawImage(dark, 0, 0);
-    // Vignette.
-    const v = context.createRadialGradient(VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.45, VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.85);
-    v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(0,0,0,0.38)');
-    context.fillStyle = v;
-    context.fillRect(0, 0, VIEW.width, VIEW.height);
   }
 
   function drawPanel(title, lines, prompt) {
@@ -332,52 +565,43 @@ export function createRenderer(canvas) {
     text(prompt, VIEW.width / 2, y + height - 38, 22, PALETTE.neonYellow, 'center', true);
   }
 
-  /** Paint one frame: the world through the camera, then HUD or a panel. */
+  /** Paint one frame: the raycast world, then HUD or a panel. */
   function draw(state, screen, best, time) {
     const cam = state.camera;
-    const shakeX = cam.shake ? (Math.random() - 0.5) * cam.shake : 0;
-    const shakeY = cam.shake ? (Math.random() - 0.5) * cam.shake : 0;
-    const camX = cam.x + shakeX;
-    const camY = cam.y + shakeY;
+    const shakeA = cam.shake ? (Math.random() - 0.5) * cam.shake * 0.004 : 0;
+    const angle = (cam.angle ?? -Math.PI / 2) + shakeA;
+    const fov = cam.fov ?? 1.15;
+    const horizon = RH / 2 + (cam.shake ? (Math.random() - 0.5) * cam.shake * 0.5 : 0);
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const tanHalf = Math.tan(fov / 2);
+    const planeX = -dirY * tanHalf;
+    const planeY = dirX * tanHalf;
+    const proj = (RW / 2) / tanHalf;
+    wallGrid(state.city);
+    const zbuf = new Array(COLS).fill(1e9);
+    const colBldg = new Array(COLS).fill(null);
+    // Scene, small.
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    drawSky(angle, fov, horizon, time);
+    drawFloor(state, cam, dirX, dirY, planeX, planeY, proj, horizon);
+    drawWalls(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
+    drawSprites(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, time);
+    drawSigns(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
+    // The player / their car only on the play screen: on the title and
+    // end panels they would show through the panel and below it.
+    if (screen === SCREEN_PLAY) drawSelf(state, cam, time);
+    // Upscale onto the main canvas, then dusk + vignette.
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = PALETTE.backdrop;
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    // Camera space: the viewport is 1280x720 around the camera centre.
-    context.save();
-    context.translate(-camX + VIEW.width / 2, -camY + VIEW.height / 2);
-    const left = camX - VIEW.width / 2 - 80;
-    const top = camY - VIEW.height / 2 - 80;
-    const right = camX + VIEW.width / 2 + 80;
-    const bottom = camY + VIEW.height / 2 + 80;
-    drawGround(state, { x: camX, y: camY }, left, top, right, bottom);
-    const visible = state.city.buildings.filter((b) => b.x + b.w > left && b.x < right && b.y + b.h > top && b.y < bottom);
-    visible.sort((a, b) => (a.y + a.h) - (b.y + b.h));
-    for (const b of visible) drawBuilding(b, time);
-    drawMarkers(state, time);
-    const cars = state.cars.filter((c) => c.x > left && c.x < right && c.y > top && c.y < bottom);
-    cars.sort((a, b) => a.y - b.y);
-    for (const car of cars) drawCar(car, time);
-    for (const ped of state.peds) {
-      if (ped.x > left && ped.x < right && ped.y > top && ped.y < bottom) drawPed(ped);
-    }
-    drawPlayer(state, time);
-    for (const b of state.bullets) {
-      context.strokeStyle = '#ffd23f';
-      context.lineWidth = 3;
-      context.beginPath();
-      context.moveTo(b.x - b.vx * 0.02, b.y - b.vy * 0.02);
-      context.lineTo(b.x, b.y);
-      context.stroke();
-    }
-    for (const pt of state.particles) {
-      context.globalAlpha = Math.max(0, pt.life / pt.maxLife);
-      context.fillStyle = pt.color;
-      context.fillRect(pt.x - pt.size / 2, pt.y - pt.size / 2, pt.size, pt.size);
-    }
-    context.globalAlpha = 1;
-    context.restore();
-    drawLighting(state, { x: camX, y: camY }, time);
+    context.drawImage(scene, 0, 0, VIEW.width, VIEW.height);
+    const v = context.createRadialGradient(VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.45, VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.85);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.38)');
+    context.fillStyle = v;
+    context.fillRect(0, 0, VIEW.width, VIEW.height);
     if (screen === SCREEN_TITLE) {
       drawPanel('NEON BAY', [
         'A sun-soaked city after dark. You are Kai Reyes,',
@@ -385,27 +609,60 @@ export function createRenderer(canvas) {
         'Mara Voss has work for you — if you can lose the cops.',
         '',
         `Best haul yet: $${best}`,
-        'WASD move / drive • E steal car • SPACE punch • CLICK shoot • P pause',
+        'WASD move • MOUSE look • RIGHT-CLICK aim • CLICK shoot',
+        'E steal car • Q swap shoulder • P pause',
       ], 'Press Space or click to start');
       return;
     }
     const speedKmh = state.player.car ? Math.abs(state.player.car.speed) * 0.36 : null;
     drawHud(context, state, speedKmh);
+    if (screen === SCREEN_PLAY) drawCrosshair(context, state);
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', '', 'Progress saves when a job ends.'], 'Press P to resume • S to save now');
     } else if (screen === SCREEN_OVER) {
-      drawPanel('WASTED', [`You woke up at St. Marina Hospital.`, `The doctors kept $100.`, `Haul so far: $${state.money}`], 'Press Space or click to play again');
+      drawPanel('WASTED', ['You woke up at St. Marina Hospital.', 'The doctors kept $100.', `Haul so far: $${state.money}`], 'Press Space or click to play again');
     } else if (screen === SCREEN_BUSTED) {
-      drawPanel('BUSTED', [`The Bayview police took you in.`, `They kept $100 of your money.`, `Haul so far: $${state.money}`], 'Press Space or click to play again');
+      drawPanel('BUSTED', ['The Bayview police took you in.', 'They kept $100 of your money.', `Haul so far: $${state.money}`], 'Press Space or click to play again');
     }
   }
 
-  /** Screen pixels (clientX/Y) → world coordinates, for mouse aiming. */
+  /** Screen pixels (clientX/Y) → a world point along that screen ray. */
   function toWorld(clientX, clientY, cam) {
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
     const vx = (clientX * ratio - view.x) / view.scale;
     const vy = (clientY * ratio - view.y) / view.scale;
-    return { x: vx - VIEW.width / 2 + cam.x, y: vy - VIEW.height / 2 + cam.y };
+    const fov = cam.fov ?? 1.15;
+    const tanHalf = Math.tan(fov / 2);
+    const angle = cam.angle ?? -Math.PI / 2;
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const planeX = -dirY * tanHalf;
+    const planeY = dirX * tanHalf;
+    const camX = (vx / VIEW.width) * 2 - 1;
+    const rx = dirX + planeX * camX;
+    const ry = dirY + planeY * camX;
+    const len = Math.hypot(rx, ry) || 1;
+    const d = 460;
+    return { x: cam.x + (rx / len) * d, y: cam.y + (ry / len) * d };
+  }
+
+  /** World point → screen pixels (centre-ray projection), for the HUD. */
+  function toScreen(wx, wy, cam) {
+    const angle = cam.angle ?? -Math.PI / 2;
+    const fov = cam.fov ?? 1.15;
+    const tanHalf = Math.tan(fov / 2);
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const planeX = -dirY * tanHalf;
+    const planeY = dirX * tanHalf;
+    const dx = wx - cam.x;
+    const dy = wy - cam.y;
+    const depth = dx * dirX + dy * dirY;
+    const lat = dx * planeX + dy * planeY;
+    return {
+      x: (VIEW.width / 2) * (1 + lat / Math.max(1, depth)),
+      y: VIEW.height / 2,
+    };
   }
 
   resize();

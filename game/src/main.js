@@ -74,11 +74,13 @@ function runGame() {
 
   function buildInput() {
     const move = input.move();
-    const mouse = input.mouse;
     const p = game.state.player;
-    const aim = p.onFoot ? renderer.toWorld(mouse.x, mouse.y, game.state.camera) : null;
+    // Third-person aim: the crosshair sits in the middle of the screen,
+    // so a shot goes straight where the player faces.
+    const aim = p.onFoot ? { x: p.x + Math.cos(p.angle) * 460, y: p.y + Math.sin(p.angle) * 460 } : null;
     return {
       move, run: input.run, handbrake: input.handbrake, aim,
+      look: input.takeLook(), aiming: input.aiming, shoulder: input.shoulder,
       actions: 0, // actions are consumed by handleActions; see below
     };
   }

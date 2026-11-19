@@ -24,7 +24,7 @@ function fakeContext() {
     setTransform() {}, fillRect() {}, strokeRect() {}, clearRect() {}, fillText() {},
     rect() {},
     beginPath() {}, closePath() {}, moveTo() {}, lineTo() {}, arc() {}, ellipse() {},
-    fill() {}, stroke() {}, save() {}, restore() {}, translate() {}, rotate() {},
+    fill() {}, stroke() {}, save() {}, restore() {}, translate() {}, rotate() {}, scale() {},
     clip() {}, drawImage() {}, roundRect() {}, createRadialGradient: fakeGradient,
     createLinearGradient: fakeGradient,
   };
@@ -77,7 +77,7 @@ for (let i = 0; i < 60 / STEP; i += 1) {
     if (car && best < 70) input = { ...idle, actions: 4 };
     else if (car) {
       const dx = car.x - p.x; const dy = car.y - p.y; const d = Math.hypot(dx, dy) || 1;
-      input = { ...idle, move: { x: dx / d, y: dy / d }, run: true };
+      input = { ...idle, move: { x: dx / d, y: dy / d }, run: true, moveWorld: true };
     }
   } else {
     stole = true;

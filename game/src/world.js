@@ -208,7 +208,9 @@ export function createState(city, random) {
     mission: null,
     missionsDone: 0,
     storyDone: false,
-    camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, shake: 0 },
+    // Third-person camera: eye position, view heading, field of view and
+    // the over-the-shoulder offset (screen px) the renderer applies.
+    camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2, fov: 1.15, shoulder: 0, shake: 0 },
     wasted: false,
     busted: false,
     endTimer: 0,

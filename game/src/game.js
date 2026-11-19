@@ -5,7 +5,7 @@
 // wanted, missions, combat, particles, camera.
 import { CITY, PLAYER, SAVE_KEY } from './config.js';
 import { createRandom } from './random.js';
-import { createCity, createState, resolveBuildingCollision } from './world.js';
+import { createCity, createState, hitsBuilding, resolveBuildingCollision } from './world.js';
 import {
   collideCarWithCity, collideCars, driveCar, exitCar, maintainTraffic,
   nearestCar, stealCar, updateTrafficCar,
@@ -31,23 +31,40 @@ function playerWorldPos(state) {
 
 function updatePlayerOnFoot(state, dt, input, random) {
   const p = state.player;
+  p.aiming = !!input.aiming;
+  p.shoulder = input.shoulder || 1;
+  // Mouse-look turns the player (and the camera behind them); aiming
+  // turns slower, like a shouldered weapon would.
+  if (input.look) p.angle += input.look * (p.aiming ? 0.0016 : 0.0022);
   const move = input.move;
   const len = Math.hypot(move.x, move.y);
   p.moving = len > 0;
   if (len > 0) {
-    const speed = input.run ? PLAYER.runSpeed : PLAYER.walkSpeed;
-    const nx = move.x / len;
-    const ny = move.y / len;
-    p.angle = Math.atan2(ny, nx);
-    p.x += nx * speed * dt;
-    p.y += ny * speed * dt;
+    let wx;
+    let wy;
+    if (input.moveWorld) {
+      // Staging / autopilot input is already in world axes: face it.
+      wx = move.x / len;
+      wy = move.y / len;
+      p.angle = Math.atan2(wy, wx);
+    } else {
+      // Player input is camera-relative: W is forward, A/D strafe.
+      const f = -move.y;
+      const s = move.x;
+      const c = Math.cos(p.angle);
+      const sn = Math.sin(p.angle);
+      wx = (c * f - sn * s) / len;
+      wy = (sn * f + c * s) / len;
+    }
+    const speed = p.aiming ? PLAYER.walkSpeed * 0.55 : (input.run ? PLAYER.runSpeed : PLAYER.walkSpeed);
+    p.x += wx * speed * dt;
+    p.y += wy * speed * dt;
     const fixed = resolveBuildingCollision(state.city, p.x, p.y, PLAYER.radius);
     p.x = fixed.x;
     p.y = fixed.y;
     p.x = Math.max(16, Math.min(CITY.width - 16, p.x));
     p.y = Math.max(16, Math.min(CITY.height - 16, p.y));
   }
-  if (input.aim) p.angle = Math.atan2(input.aim.y - p.y, input.aim.x - p.x);
   if (p.punchTimer > 0) p.punchTimer -= dt;
   if (p.shootTimer > 0) p.shootTimer -= dt;
   if (p.hurtTimer > 0) p.hurtTimer -= dt;
@@ -154,17 +171,35 @@ function updateSideJob(state, dt) {
   }
 }
 
+/**
+ * Third-person camera: the eye sits behind the player (or their car),
+ * looking where they face. Heading, field of view and the shoulder
+ * offset ease toward their targets; aiming pulls the camera in close,
+ * narrows the view and shifts the player to the left third. A wall
+ * behind the player pulls the camera in rather than clipping through it.
+ */
 function updateCamera(state, dt) {
-  const pos = playerWorldPos(state);
+  const p = state.player;
   const cam = state.camera;
-  cam.x += (pos.x - cam.x) * Math.min(1, dt * 5);
-  cam.y += (pos.y - cam.y) * Math.min(1, dt * 5);
-  cam.x = Math.max(VIEW_HALF_X, Math.min(CITY.width - VIEW_HALF_X, cam.x));
-  cam.y = Math.max(VIEW_HALF_Y, Math.min(CITY.height - VIEW_HALF_Y, cam.y));
+  const target = p.car ? { x: p.car.x, y: p.car.y } : { x: p.x, y: p.y };
+  const targetAngle = p.car ? p.car.angle : p.angle;
+  let diff = targetAngle - cam.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  cam.angle += diff * Math.min(1, dt * 10);
+  const wantFov = p.car ? 1.22 : (p.aiming ? 0.87 : 1.15);
+  cam.fov += (wantFov - cam.fov) * Math.min(1, dt * 8);
+  const wantShoulder = p.car ? 0 : (p.aiming ? -95 * (p.shoulder || 1) : 0);
+  cam.shoulder += (wantShoulder - cam.shoulder) * Math.min(1, dt * 8);
+  let dist = p.car ? 120 : (p.aiming ? 62 : 95);
+  const fx = Math.cos(cam.angle);
+  const fy = Math.sin(cam.angle);
+  while (dist > 30 && hitsBuilding(state.city, target.x - fx * dist, target.y - fy * dist, 14)) dist -= 12;
+  cam.x = target.x - fx * dist;
+  cam.y = target.y - fy * dist;
+  cam.x = Math.max(40, Math.min(CITY.width - 40, cam.x));
+  cam.y = Math.max(40, Math.min(CITY.height - 40, cam.y));
 }
-
-const VIEW_HALF_X = 640;
-const VIEW_HALF_Y = 360;
 
 /**
  * One fixed step of the whole game. `input` is { move:{x,y}, run,
@@ -272,6 +307,7 @@ export function recover(state, random) {
   state.banner = { text: 'Back on the street', sub: state.wasted ? `Hospital fee: $${fee}` : `Bail: $${fee}`, timer: 3 };
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
+  state.camera.angle = -Math.PI / 2;
 }
 
 /** Save to localStorage (best-effort: private windows may refuse). */
@@ -304,6 +340,7 @@ export function loadGame(state) {
     state.player.y = s.y ?? CITY.safehouse.y + 120;
     state.camera.x = state.player.x;
     state.camera.y = state.player.y;
+    state.camera.angle = -Math.PI / 2;
     return true;
   } catch {
     return false;
