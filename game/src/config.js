@@ -16,7 +16,6 @@ export const CITY = {
   pitch: 320, // road centre to road centre
   road: 64,
   block: 256,
-  // Named districts, all original: where the story lives.
   hospital: { x: 2880, y: 2080, name: 'St. Marina Hospital' },
   precinct: { x: 320, y: 320, name: 'Bayview Precinct' },
   safehouse: { x: 1600, y: 2080, name: 'Marina Safehouse' },
@@ -104,7 +103,6 @@ export const PALETTE = {
   curb: '#7a7f8c',
   building: ['#e8a87c', '#d97b6c', '#7fb3d5', '#f2d492', '#9b7fb3', '#6b8e7a', '#e07a5f', '#81b29a'],
   roof: ['#8a5a44', '#6e4a5a', '#4a6a8a', '#8a7a4a', '#5a4a7a', '#4a6a5a'],
-  // Pastel art-deco roofs for the beachfront row (generic seaside palette).
   pastel: ['#f7a8b8', '#a8e6cf', '#ffd3b6', '#a8d8ea', '#f9e79f'],
   neonPink: '#ff2e88',
   neonCyan: '#22d3ee',

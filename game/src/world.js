@@ -103,16 +103,11 @@ export function hitsBuilding(city, x, y, radius) {
 }
 
 function makeBuilding(random, bx, by, bw, bh, name) {
-  // The last block row before the beach is the beachfront: pastel art-deco
-  // roofs instead of the dark roof set (same number of random draws, so the
-  // rest of the seeded city is untouched).
   const beachfront = by + bh >= CITY.beachY - 320;
   const color = PALETTE.building[Math.floor(random() * PALETTE.building.length)];
   const roof = beachfront
     ? PALETTE.pastel[Math.floor(random() * PALETTE.pastel.length)]
     : PALETTE.roof[Math.floor(random() * PALETTE.roof.length)];
-  // Visual-only facade variety, from a hash of the block — no random
-  // draws, so the seeded layout (positions, parks, missions) is untouched.
   const hash = (bx * 31 + by * 17) % 100;
   return {
     x: bx + 14, y: by + 14, w: bw - 28, h: bh - 28,
@@ -138,7 +133,6 @@ export function createCity(random) {
       const by = roadCentresY[j] + CITY.road / 2;
       const bw = CITY.block;
       const bh = CITY.block;
-      // The beach strip: the southern row of blocks is sand, not buildings.
       if (by + bh >= CITY.beachY) continue;
       const roll = random();
       if (roll < 0.14) {
@@ -149,7 +143,6 @@ export function createCity(random) {
         parks.push({ x: bx, y: by, w: bw, h: bh, trees });
         continue;
       }
-      // Named story locations sit on their own blocks.
       const spot = named.find((n) => {
         const c = CITY[n.key];
         return Math.abs(c.x - (bx + bw / 2)) < bw / 2 && Math.abs(c.y - (by + bh / 2)) < bh / 2;
@@ -166,22 +159,17 @@ export function createCity(random) {
       if (roll < 0.55) {
         buildings.push(makeBuilding(random, bx, by, bw, bh, null));
       } else {
-        // Two smaller buildings side by side.
         buildings.push(makeBuilding(random, bx, by, bw / 2 - 4, bh, null));
         buildings.push(makeBuilding(random, bx + bw / 2 + 4, by, bw / 2 - 4, bh, null));
       }
     }
   }
-  // Palms along the beach road: placed by index with a hash jitter, so they
-  // cost no random draws and the rest of the seeded city is untouched.
   const palms = [];
   for (let i = 0; i < 18; i += 1) {
     const h1 = ((i * 2654435761) % 1000) / 1000;
     const h2 = ((i * 40503) % 1000) / 1000;
     palms.push({ x: 120 + i * 170 + h1 * 60, y: CITY.beachY - 30 - h2 * 22, lean: h1 * Math.PI });
   }
-  // Generic neon signs, plain words only: HOTEL on the named hotel, BAR and
-  // TACOS on two downtown neon buildings. Deterministic from the seed.
   const hotel = buildings.find((b) => b.name === 'Hotel Palmera');
   if (hotel) { hotel.sign = 'HOTEL'; hotel.neon = true; }
   const downtown = buildings.filter((b) => !b.sign && b.neon && b.x > 900 && b.x < 2300 && b.y > 700 && b.y < 1700);
@@ -189,8 +177,6 @@ export function createCity(random) {
   if (downtown[1]) downtown[1].sign = 'TACOS';
   if (downtown[2]) downtown[2].sign = 'CAFE';
   if (downtown[3]) downtown[3].sign = 'PIZZA';
-  // Streetlights, one per intersection corner (hash jitter, no random
-  // draws): they make the roads read at dusk and cost no layout change.
   const lamps = [];
   for (const cx of roadCentresX) {
     for (const cy of roadCentresY) {
@@ -224,8 +210,6 @@ export function createState(city, random) {
     mission: null,
     missionsDone: 0,
     storyDone: false,
-    // Third-person camera: eye position, view heading, field of view and
-    // the over-the-shoulder offset (screen px) the renderer applies.
     camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2, fov: 1.15, shoulder: 0, shake: 0 },
     wasted: false,
     busted: false,

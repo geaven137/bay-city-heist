@@ -13,7 +13,6 @@ export function createAudio() {
   let muted = false;
   let musicStep = 0;
 
-  // A minor-key bass walk, one note per beat, synthwave at heart.
   const BASS = [55, 55, 65.41, 55, 49, 55, 82.41, 73.42];
 
   function ensure() {
