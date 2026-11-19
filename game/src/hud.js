@@ -45,12 +45,10 @@ export function drawMinimap(ctx, state) {
   ctx.beginPath();
   ctx.arc(cx, cy, size / 2, 0, Math.PI * 2);
   ctx.clip();
-  // Water + sand along the south edge.
   ctx.fillStyle = PALETTE.water;
   ctx.fillRect(x0, y0 + CITY.beachY * scale, size, size);
   ctx.fillStyle = PALETTE.sand;
   ctx.fillRect(x0, y0 + (CITY.beachY - 60) * scale, size, 60 * scale);
-  // Roads.
   ctx.strokeStyle = '#3a3f4a';
   ctx.lineWidth = Math.max(1, CITY.road * scale);
   for (const cx of roadCentresX) {
@@ -59,7 +57,6 @@ export function drawMinimap(ctx, state) {
   for (const cy of roadCentresY) {
     ctx.beginPath(); ctx.moveTo(x0, y0 + cy * scale); ctx.lineTo(x0 + size, y0 + cy * scale); ctx.stroke();
   }
-  // Buildings as dots.
   ctx.fillStyle = '#8a7a5a';
   for (const b of state.city.buildings) {
     ctx.fillRect(x0 + b.x * scale, y0 + b.y * scale, Math.max(1, b.w * scale), Math.max(1, b.h * scale));
@@ -68,7 +65,6 @@ export function drawMinimap(ctx, state) {
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(x0 + wx * scale, y0 + wy * scale, r || 3, 0, Math.PI * 2); ctx.fill();
   };
-  // Mission marker (yellow diamond).
   const target = state.sideJob && !state.mission
     ? (state.sideJob.stage === 'pickup' ? state.sideJob.pickup : state.sideJob.drop)
     : (missionTarget(state) ? { x: missionTarget(state).x, y: missionTarget(state).y } : null);
@@ -84,7 +80,6 @@ export function drawMinimap(ctx, state) {
     if (car.kind === 'police') dot(car.x, car.y, '#ff5a5a', 3);
     else if (car.kind !== 'player') dot(car.x, car.y, '#e8ecf2', 2);
   }
-  // The player: a cyan triangle pointing where they face.
   const p = state.player;
   const px = p.car ? p.car.x : p.x;
   const py = p.car ? p.car.y : p.y;
@@ -100,15 +95,13 @@ export function drawMinimap(ctx, state) {
 
 /** The full HUD over the world view. `speedKmh` is shown only while driving. */
 export function drawHud(ctx, state, speedKmh) {
-  // Cash + health, top-left.
   text(ctx, `$${state.money}`, 24, 44, 34, PALETTE.money, 'left', true);
   bar(ctx, 24, 56, 220, 14, state.health / 100, state.health > 30 ? '#7ee787' : '#ff5a5a');
   text(ctx, `HP ${Math.ceil(state.health)}`, 24, 92, 15, PALETTE.text, 'left');
-  // Wanted stars, top-right.
+  if (state._hlTier) text(ctx, 'REP ' + state._hlTier, 24, 112, 13, PALETTE.muted, 'left', true);
   const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
   text(ctx, stars, VIEW.width - 24, 44, 30, state.wanted > 0 ? '#ff5a5a' : 'rgba(244,246,250,0.35)', 'right', true);
   text(ctx, state.wanted > 0 ? 'WANTED' : 'CLEAN', VIEW.width - 24, 70, 14, state.wanted > 0 ? '#ff5a5a' : PALETTE.muted, 'right', true);
-  // Mission line, top-centre.
   const stage = state.mission ? missionTarget(state) : null;
   if (stage) {
     const remain = Math.max(0, Math.ceil(state.mission.timer));
@@ -123,7 +116,7 @@ export function drawHud(ctx, state, speedKmh) {
   } else {
     text(ctx, 'New job waiting at the Marina Safehouse — drive there', VIEW.width / 2, 40, 16, PALETTE.muted, 'center');
   }
-  // Weapon + ammo, bottom-right; speed above it while driving.
+  if (state._hlRetry) text(ctx, 'Job failed — press R to retry from the checkpoint', VIEW.width / 2, 92, 16, PALETTE.neonYellow, 'center', true);
   if (speedKmh !== null) {
     text(ctx, `${Math.round(speedKmh)}`, VIEW.width - 24, VIEW.height - 108, 44, PALETTE.text, 'right', true);
     text(ctx, 'km/h', VIEW.width - 24, VIEW.height - 84, 15, PALETTE.muted, 'right');
@@ -136,7 +129,6 @@ export function drawHud(ctx, state, speedKmh) {
     text(ctx, 'WASD move • MOUSE look • RIGHT-CLICK aim • CLICK shoot • Q swap shoulder • E steal car', VIEW.width / 2, VIEW.height - 40, 14, PALETTE.muted, 'center');
   }
   drawMinimap(ctx, state);
-  // Mission compass arrow at the screen edge.
   if (stage) {
     const p = state.player;
     const px = p.car ? p.car.x : p.x;
@@ -146,10 +138,6 @@ export function drawHud(ctx, state, speedKmh) {
     const dist = Math.hypot(dx, dy);
     if (dist > 420) {
       const ang = Math.atan2(dy, dx);
-      // Orbit around the mission line — but never inside the mission-text
-      // band (title y=40, subtitle y=66): when the target is north, the
-      // raw orbit puts the arrow and the "NNNm" label right on top of the
-      // objective text. Clamp below the band, so the label can never cover it.
       const cx = Math.max(70, Math.min(VIEW.width - 70, VIEW.width / 2 + Math.cos(ang) * 180));
       const cy = Math.max(112, 120 + Math.sin(ang) * 80);
       ctx.save();
@@ -161,16 +149,10 @@ export function drawHud(ctx, state, speedKmh) {
       text(ctx, `${Math.round(dist)}m`, cx, cy + 26, 13, PALETTE.neonYellow, 'center', true);
     }
   }
-  // Big banner (mission start, WANTED, WASTED, CLEAN…): upper third, on a
-  // dark backing, so it stays readable over any backdrop and never covers
-  // the crosshair or the centre of the view.
   if (state.banner && state.banner.timer > 0) {
     const alpha = Math.min(1, state.banner.timer);
     const titleY = 278;
     const subY = 314;
-    // Width from the text itself when the context can measure (real
-    // canvas); a per-character estimate otherwise (the smoke-test stub
-    // has no measureText). Generous, so the panel never clips the text.
     const measure = (value, size) => (typeof ctx.measureText === 'function'
       ? ctx.measureText(value).width
       : value.length * size * 0.58);
@@ -190,7 +172,6 @@ export function drawHud(ctx, state, speedKmh) {
     if (state.banner.sub) text(ctx, state.banner.sub, VIEW.width / 2, subY, 22, PALETTE.neonYellow, 'center');
     ctx.globalAlpha = 1;
   }
-  // Red damage flash.
   if (state.flash > 0) {
     ctx.fillStyle = `rgba(255, 40, 40, ${state.flash * 0.25})`;
     ctx.fillRect(0, 0, VIEW.width, VIEW.height);
@@ -203,8 +184,6 @@ export function drawCrosshair(ctx, state) {
   if (!p.onFoot) return;
   const cx = VIEW.width / 2;
   const cy = VIEW.height / 2;
-  // Aim assist holds a target: the crosshair tightens and turns yellow,
-  // so the player can feel the magnetism instead of guessing at it.
   const spread = 6 + (p.shootTimer > 0 ? 14 : 0) + (p.moving ? 5 : 0) - (p.assist ? 2 : 0);
   ctx.strokeStyle = 'rgba(0,0,0,0.7)';
   ctx.lineWidth = 3;

@@ -15,11 +15,9 @@ export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const SCREEN_BUSTED = 'busted';
 
-// The 3D scene is painted small (640x360) and upscaled; the HUD stays
-// crisp at 1280x720 on top of it.
-const RW = 640;
-const RH = 360;
-const COLS = 160; // wall columns across the scene
+let RW = 640;
+let RH = 360;
+let COLS = 160; // wall columns across the scene
 const CELL = 32; // wall-grid cell, world units
 const EYE = 30; // camera height above the street, world units
 const WALL = 2.4; // building height multiplier: top-down heights read short
@@ -56,8 +54,6 @@ export function createRenderer(canvas) {
   scene.height = RH;
   const sctx = scene.getContext('2d');
 
-  // Wall grid for the raycaster: cell -> building index + 1 (0 = open).
-  // Rebuilt only when the city object changes.
   let gridCity = null;
   let grid = null;
   let gridW = 0;
@@ -80,8 +76,6 @@ export function createRenderer(canvas) {
     }
   }
 
-  // Procedural sprite canvases, cached by look. Drawn at 2x so a sprite
-  // close to the camera stays sharp instead of a blurry blow-up.
   const sprites = new Map();
   function sprite(key, w, h, draw) {
     if (!sprites.has(key)) {
@@ -96,10 +90,6 @@ export function createRenderer(canvas) {
     return sprites.get(key);
   }
 
-  // Wall-face texture per building look: four facades (window grid,
-  // shopfront, vertical strips, balconies) with a door, a base band and
-  // one consistent sun side, so the street reads as a city, not a row of
-  // identical boxes. Keyed by facade + lit fraction too.
   const wallTex = new Map();
   function textureFor(b) {
     const facade = b.facade ?? 0;
@@ -112,7 +102,6 @@ export function createRenderer(canvas) {
     const g = c.getContext('2d');
     g.fillStyle = b.color;
     g.fillRect(0, 0, 48, 96);
-    // Sun from the left: a warm wash on the left edge, shade on the right.
     const sun = g.createLinearGradient(0, 0, 48, 0);
     sun.addColorStop(0, 'rgba(255,190,120,0.14)');
     sun.addColorStop(0.5, 'rgba(255,190,120,0)');
@@ -125,7 +114,6 @@ export function createRenderer(canvas) {
       g.fillRect(x, y, w, h);
     };
     if (facade === 1) {
-      // Shopfront: big lit panes + awning at street level, small windows up.
       for (let r = 0; r < 4; r += 1) {
         for (let col = 0; col < 3; col += 1) win(5 + col * 14, 10 + r * 12, 9, 7, r, col);
       }
@@ -136,12 +124,10 @@ export function createRenderer(canvas) {
       g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
       g.fillRect(0, 58, 48, 4);
     } else if (facade === 2) {
-      // Vertical strips: tall office windows in three columns.
       for (let col = 0; col < 3; col += 1) {
         for (let r = 0; r < 5; r += 1) win(6 + col * 14, 10 + r * 15, 8, 11, r, col);
       }
     } else if (facade === 3) {
-      // Balconies: slab + railing lines over the windows, four floors.
       for (let r = 0; r < 4; r += 1) {
         for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 18, 9, 8, r, col);
         g.fillStyle = 'rgba(0,0,0,0.28)';
@@ -150,12 +136,10 @@ export function createRenderer(canvas) {
         g.fillRect(0, 24 + r * 18, 48, 1);
       }
     } else {
-      // Window grid (the original facade).
       for (let r = 0; r < 6; r += 1) {
         for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 13, 9, 8, r, col);
       }
     }
-    // Door at street level + a darker base band (sidewalk grime).
     g.fillStyle = 'rgba(16,20,30,0.9)';
     g.fillRect(20, 84, 8, 12);
     g.fillStyle = 'rgba(0,0,0,0.22)';
@@ -207,14 +191,11 @@ export function createRenderer(canvas) {
     const onH = dy <= CITY.road / 2; // on the east-west road
     const onV = dx <= CITY.road / 2; // on the north-south road
     if (onH || onV) {
-      // Crosswalk zebra inside the intersection square (near field only):
-      // bars run across the road being crossed, spaced along it.
       if (near && dx < 46 && dy < 46) {
         if (onH && Math.abs(wx - cx) < 20 && Math.floor(wx / 8) % 2 === 0) return '#d8dce6';
         if (onV && Math.abs(wy - cy) < 20 && Math.floor(wy / 8) % 2 === 0) return '#d8dce6';
       }
       if (near && (dx < 2 || dy < 2)) return PALETTE.roadLine;
-      // Dashed white edge lines, near the road's edge (near field only).
       if (near) {
         if (onH && dy > 24 && dy < 28 && Math.floor(wx / 22) % 2 === 0) return '#c8ccd4';
         if (onV && dx > 24 && dx < 28 && Math.floor(wy / 22) % 2 === 0) return '#c8ccd4';
@@ -222,7 +203,6 @@ export function createRenderer(canvas) {
       return PALETTE.asphalt;
     }
     if (dx <= CITY.road / 2 + 10 || dy <= CITY.road / 2 + 10) {
-      // Curb: a darker strip just off the asphalt, then the sidewalk.
       if (dx <= CITY.road / 2 + 4 || dy <= CITY.road / 2 + 4) return '#4a4f5c';
       return PALETTE.sidewalk;
     }
@@ -239,7 +219,6 @@ export function createRenderer(canvas) {
     g.addColorStop(1, '#ff8a5c');
     sctx.fillStyle = g;
     sctx.fillRect(0, 0, RW, horizon + 1);
-    // Stars in the upper sky: fixed positions from an index hash.
     sctx.fillStyle = '#f4f6fa';
     for (let i = 0; i < 42; i += 1) {
       const sx = (i * 97 + 31) % RW;
@@ -248,7 +227,6 @@ export function createRenderer(canvas) {
       sctx.fillRect(sx, sy, 2, 2);
     }
     sctx.globalAlpha = 1;
-    // Low sun, fixed to the west: it slides across the sky as you turn.
     const tanHalf = Math.tan(fov / 2);
     const sunA = wrapAngle(Math.PI * 0.75 - camAngle);
     if (Math.abs(sunA) < fov / 2 + 0.25) {
@@ -264,7 +242,6 @@ export function createRenderer(canvas) {
       sctx.arc(sunX, sunY, 15, 0, Math.PI * 2);
       sctx.fill();
     }
-    // Haze band on the horizon.
     const haze = sctx.createLinearGradient(0, horizon - 14, 0, horizon + 6);
     haze.addColorStop(0, 'rgba(255,138,92,0)');
     haze.addColorStop(1, 'rgba(255,138,92,0.35)');
@@ -321,7 +298,6 @@ export function createRenderer(canvas) {
       const tex = textureFor(b);
       const sx = Math.floor(hit.frac * tex.width);
       sctx.drawImage(tex, sx, 0, 1, tex.height, c * colW, y0, colW + 0.5, y1 - y0);
-      // Side shading + distance fog.
       const fog = Math.min(0.5, hit.perp / 950);
       sctx.fillStyle = hit.side === 1 ? `rgba(${FOG},${(fog + 0.1).toFixed(3)})` : `rgba(${FOG},${fog.toFixed(3)})`;
       sctx.fillRect(c * colW, y0, colW + 0.5, y1 - y0);
@@ -353,7 +329,6 @@ export function createRenderer(canvas) {
         fx += dx;
         fy += dy;
       }
-      // Fog grows toward the horizon.
       const fog = Math.min(0.55, rowDist / 900) * 0.55;
       if (fog > 0.02) {
         sctx.fillStyle = `rgba(${FOG},${fog.toFixed(3)})`;
@@ -379,11 +354,6 @@ export function createRenderer(canvas) {
 
   function drawSpriteEntry(entry, zbuf) {
     const { canvas: img, sx, bottom, h, w, depth } = entry;
-    // A sprite close to the camera and near a frame edge is a trunk or
-    // a bumper at arm's length, half out of shot: clip it out instead
-    // of painting a giant blur at the edge. A sprite centred in front
-    // of the player stays (that is how close things look — and it is
-    // the one you are about to punch or shoot).
     if (depth < 75 && (sx < RW * 0.2 || sx > RW * 0.8)) return;
     const x0 = Math.round(sx - w / 2);
     const x1 = Math.round(sx + w / 2);
@@ -406,28 +376,20 @@ export function createRenderer(canvas) {
     }
   }
 
-  // A real car's rear, not a blob: long low body, a narrower cabin with
-  // a trapezoidal rear window, slim horizontal taillights (never two
-  // squares), wheels at the corners, a plate, mirrors and one sun side.
-  // The old drawing was a wide rounded box with two red squares for eyes
-  // — that is exactly what read as a frog.
   function carSprite(color, police) {
     return sprite(`car-${police ? 'cop' : color}`, 96, 72, (g, w, h) => {
       g.fillStyle = 'rgba(0,0,0,0.35)';
       g.beginPath(); g.ellipse(w / 2, h - 6, 40, 6, 0, 0, Math.PI * 2); g.fill();
-      // Wheels peeking below the body.
       g.fillStyle = '#14181f';
       g.beginPath(); g.roundRect(10, 56, 13, 10, 3); g.fill();
       g.beginPath(); g.roundRect(73, 56, 13, 10, 3); g.fill();
       g.fillStyle = 'rgba(200,205,215,0.5)';
       g.fillRect(14, 59, 5, 4);
       g.fillRect(77, 59, 5, 4);
-      // Cabin: narrower than the body, roof highlight on top.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(20, 12, 56, 24, 6); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.22)';
       g.fillRect(22, 13, 52, 3);
-      // Rear window: trapezoid, wider at the bottom, sky reflection.
       g.fillStyle = 'rgba(18,24,38,0.95)';
       g.beginPath();
       g.moveTo(26, 34); g.lineTo(70, 34); g.lineTo(66, 17); g.lineTo(30, 17);
@@ -436,21 +398,17 @@ export function createRenderer(canvas) {
       g.beginPath();
       g.moveTo(34, 34); g.lineTo(44, 34); g.lineTo(38, 17); g.lineTo(32, 17);
       g.closePath(); g.fill();
-      // Side mirrors.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(13, 24, 7, 5, 2); g.fill();
       g.beginPath(); g.roundRect(76, 24, 7, 5, 2); g.fill();
-      // Lower body + darker bumper band.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(6, 34, 84, 26, 6); g.fill();
       g.fillStyle = shade(color, 0.55);
       g.beginPath(); g.roundRect(6, 52, 84, 8, 4); g.fill();
-      // Trunk shut line + centre badge.
       g.fillStyle = 'rgba(0,0,0,0.25)';
       g.fillRect(14, 40, 68, 1);
       g.fillStyle = 'rgba(244,246,250,0.8)';
       g.beginPath(); g.arc(48, 40, 2, 0, Math.PI * 2); g.fill();
-      // Slim horizontal taillights with a bright core + white reverse bit.
       g.fillStyle = '#ff2e2e';
       g.fillRect(8, 42, 26, 5);
       g.fillRect(62, 42, 26, 5);
@@ -460,7 +418,6 @@ export function createRenderer(canvas) {
       g.fillStyle = '#f4f6fa';
       g.fillRect(30, 42, 4, 5);
       g.fillRect(62, 42, 4, 5);
-      // Plate + exhaust.
       g.fillStyle = '#dfe3ea';
       g.fillRect(41, 53, 14, 6);
       g.fillStyle = 'rgba(0,0,0,0.5)';
@@ -468,7 +425,6 @@ export function createRenderer(canvas) {
       g.fillStyle = '#14181f';
       g.beginPath(); g.arc(80, 58, 2, 0, Math.PI * 2); g.fill();
       if (police) {
-        // Low-profile light bar + a dark-blue bumper stripe: reads police.
         g.fillStyle = '#ff2e2e';
         g.fillRect(34, 8, 14, 4);
         g.fillStyle = '#2e6bff';
@@ -479,11 +435,6 @@ export function createRenderer(canvas) {
     });
   }
 
-  // One human figure in a 48x96 box, from the front. Proportions from
-  // the character-modeling blockout: head ~1/7.5 of height, separate
-  // masses for head, torso, pelvis and limbs, one sun side for volume.
-  // `o` picks the outfit: shirt, pants, skin, sleeve, headwear, belt,
-  // reflective stripes (fire), badge (police).
   const SKINS = ['#e8b890', '#c98d64', '#8a5a3b', '#f0c8a0'];
   const PANTS = ['#1e2a3a', '#3a3f4a', '#5a4632', '#2a4a3a'];
   const HAIRS = ['#1e2a3a', '#3a2a1e', '#5a4632', '#14181f'];
@@ -557,8 +508,6 @@ export function createRenderer(canvas) {
   }
 
   function pedSprite(color, kind) {
-    // Deterministic outfit variant from the shirt colour, so the crowd
-    // is not clones: short sleeves, a cap, different skin and trousers.
     const h = (color.charCodeAt(1) * 7 + color.length * 13) % 4;
     if (kind === 'police') {
       return sprite('ped-police', 48, 96, (g) => drawFigure(g, {
@@ -634,13 +583,8 @@ export function createRenderer(canvas) {
     });
   }
 
-  // Kai Reyes from behind: cyan jacket, dark pants. Same blockout as the
-  // walkers — head ~1/7.5 of height (the old sprite's head was 1/5, a
-  // chibi), separate masses, one sun side — so he reads as a person, not
-  // a box with a ball on top.
   function playerSprite(aiming) {
     return sprite(`player-${aiming ? 'aim' : 'walk'}`, 96, 128, (g, w, h) => {
-      // Legs + shoes.
       g.fillStyle = PALETTE.playerPants;
       g.fillRect(37, 74, 10, 44);
       g.fillRect(49, 74, 10, 44);
@@ -650,7 +594,6 @@ export function createRenderer(canvas) {
       g.fillStyle = 'rgba(244,246,250,0.35)';
       g.fillRect(35, 122, 13, 2);
       g.fillRect(48, 122, 13, 2);
-      // Torso (jacket) + belt.
       g.fillStyle = PALETTE.player;
       g.beginPath(); g.roundRect(30, 27, 36, 42, 8); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.18)';
@@ -659,19 +602,14 @@ export function createRenderer(canvas) {
       g.fillRect(62, 27, 4, 42);
       g.fillStyle = 'rgba(255,140,90,0.5)';
       g.fillRect(65, 27, 1, 42);
-      // Back seam + collar.
       g.fillStyle = 'rgba(0,0,0,0.22)';
       g.fillRect(47, 30, 2, 36);
       g.fillStyle = shade(PALETTE.player, 0.7);
       g.fillRect(42, 25, 12, 6);
       g.fillStyle = '#14181f';
       g.fillRect(30, 67, 36, 4);
-      // Arms: sleeves at the sides, hands at mid-thigh.
       g.fillStyle = PALETTE.player;
       if (aiming) {
-        // Right arm raised, pistol held forward: a short barrel angled
-        // up-right toward the crosshair. (The old vertical bar read as
-        // a phone held upright.)
         g.fillRect(26, 30, 8, 34);
         g.fillRect(62, 14, 8, 20);
         g.fillStyle = '#e8b890';
@@ -692,7 +630,6 @@ export function createRenderer(canvas) {
         g.fillRect(26, 62, 8, 7);
         g.fillRect(62, 62, 8, 7);
       }
-      // Neck + head (hair covers the back of the head).
       g.fillStyle = '#e8b890';
       g.fillRect(44, 23, 8, 5);
       g.beginPath(); g.arc(48, 15, 9, 0, Math.PI * 2); g.fill();
@@ -702,13 +639,10 @@ export function createRenderer(canvas) {
     });
   }
 
-  // The player's car from behind, same language as traffic but bigger
-  // and sharper: a long low rear, a trapezoidal window, slim lights.
   function playerCarSprite(color) {
     return sprite(`rear-${color}`, 160, 110, (g, w, h) => {
       g.fillStyle = 'rgba(0,0,0,0.4)';
       g.beginPath(); g.ellipse(w / 2, h - 6, 72, 10, 0, 0, Math.PI * 2); g.fill();
-      // Wheels at the corners, with hubs.
       g.fillStyle = '#14181f';
       g.beginPath(); g.roundRect(16, 88, 24, 16, 4); g.fill();
       g.beginPath(); g.roundRect(120, 88, 24, 16, 4); g.fill();
@@ -718,14 +652,12 @@ export function createRenderer(canvas) {
       g.fillStyle = '#14181f';
       g.fillRect(25, 95, 6, 2);
       g.fillRect(129, 95, 6, 2);
-      // Roof + antenna fin.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(44, 16, 72, 14, 7); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.25)';
       g.fillRect(46, 17, 68, 3);
       g.fillStyle = '#14181f';
       g.beginPath(); g.moveTo(76, 16); g.lineTo(84, 16); g.lineTo(80, 8); g.closePath(); g.fill();
-      // Rear window: trapezoid with a sunset reflection stripe.
       g.fillStyle = 'rgba(18,24,38,0.95)';
       g.beginPath();
       g.moveTo(48, 54); g.lineTo(112, 54); g.lineTo(104, 28); g.lineTo(56, 28);
@@ -738,29 +670,24 @@ export function createRenderer(canvas) {
       g.beginPath();
       g.moveTo(78, 54); g.lineTo(84, 54); g.lineTo(80, 28); g.lineTo(76, 28);
       g.closePath(); g.fill();
-      // Side mirrors.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(30, 36, 12, 8, 3); g.fill();
       g.beginPath(); g.roundRect(118, 36, 12, 8, 3); g.fill();
       g.fillStyle = 'rgba(0,0,0,0.3)';
       g.fillRect(30, 36, 12, 2);
       g.fillRect(118, 36, 12, 2);
-      // Lower body: long, low, slightly tapered; darker bumper band.
       g.fillStyle = color;
       g.beginPath(); g.roundRect(12, 56, 136, 40, 9); g.fill();
       g.fillStyle = shade(color, 0.55);
       g.beginPath(); g.roundRect(12, 86, 136, 10, 5); g.fill();
-      // Sun wash on the left edge, shade on the right (one light source).
       g.fillStyle = 'rgba(255,190,120,0.10)';
       g.fillRect(12, 56, 10, 40);
       g.fillStyle = 'rgba(0,0,0,0.16)';
       g.fillRect(138, 56, 10, 40);
-      // Trunk shut line + centre badge.
       g.fillStyle = 'rgba(0,0,0,0.28)';
       g.fillRect(22, 64, 116, 1);
       g.fillStyle = 'rgba(244,246,250,0.85)';
       g.beginPath(); g.arc(80, 64, 3, 0, Math.PI * 2); g.fill();
-      // Slim horizontal taillights, bright core, white reverse segment.
       g.fillStyle = '#ff2e2e';
       g.fillRect(14, 66, 38, 6);
       g.fillRect(108, 66, 38, 6);
@@ -770,7 +697,6 @@ export function createRenderer(canvas) {
       g.fillStyle = '#f4f6fa';
       g.fillRect(48, 66, 4, 6);
       g.fillRect(108, 66, 4, 6);
-      // Plate + exhaust tip.
       g.fillStyle = '#dfe3ea';
       g.fillRect(66, 76, 28, 10);
       g.fillStyle = 'rgba(0,0,0,0.55)';
@@ -791,10 +717,6 @@ export function createRenderer(canvas) {
     }
     for (const ped of state.peds) {
       if (ped.down) continue;
-      // People read shorter than cars: at worldH 46 a walker next to a
-      // police car looked like a giant. 34 keeps them clearly human.
-      // Aspect 0.35 matches the figure's real width (shoulders ~1/4 of
-      // height), so walkers are slim people, not wide boxes.
       const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 34, 0.35);
       if (e) entries.push({ ...e, canvas: pedSprite(ped.color, ped.kind) });
     }
@@ -812,7 +734,6 @@ export function createRenderer(canvas) {
         if (e) entries.push({ ...e, canvas: treeSprite() });
       }
     }
-    // Mission marker: a beam of light plus a floating diamond.
     const target = missionTarget(state);
     const job = state.sideJob && !state.mission
       ? (state.sideJob.stage === 'pickup' ? state.sideJob.pickup : state.sideJob.drop) : null;
@@ -859,8 +780,6 @@ export function createRenderer(canvas) {
       sctx.drawImage(img, x, RH - h - 4 + bob, w, h);
     } else if (p.car) {
       const img = playerCarSprite(p.car.color);
-      // Slightly smaller than before (300x200 filled half the frame):
-      // the car now reads as a car on a road, not a wall of paint.
       const w = 280;
       const h = 186;
       sctx.drawImage(img, RW / 2 - w / 2, RH - h - 2, w, h);
@@ -919,17 +838,20 @@ export function createRenderer(canvas) {
     wallGrid(state.city);
     const zbuf = new Array(COLS).fill(1e9);
     const colBldg = new Array(COLS).fill(null);
-    // Scene, small.
     sctx.setTransform(1, 0, 0, 1, 0, 0);
     drawSky(angle, fov, horizon, time);
     drawFloor(state, cam, dirX, dirY, planeX, planeY, proj, horizon);
     drawWalls(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
     drawSprites(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, time);
     drawSigns(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
-    // The player / their car only on the play screen: on the title and
-    // end panels they would show through the panel and below it.
+    if (state._hlDrops) { // rain: 2D streaks from the patch kit's pool
+      sctx.strokeStyle = 'rgba(180,200,230,0.35)';
+      sctx.lineWidth = 1;
+      sctx.beginPath();
+      for (const d of state._hlDrops) { sctx.moveTo(d.x, d.y); sctx.lineTo(d.x - 3, d.y + 10); }
+      sctx.stroke();
+    }
     if (screen === SCREEN_PLAY) drawSelf(state, cam, time);
-    // Upscale onto the main canvas, then dusk + vignette.
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.fillStyle = PALETTE.backdrop;
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -940,6 +862,7 @@ export function createRenderer(canvas) {
     v.addColorStop(1, 'rgba(0,0,0,0.38)');
     context.fillStyle = v;
     context.fillRect(0, 0, VIEW.width, VIEW.height);
+    if (state._hlTint) { context.fillStyle = state._hlTint; context.fillRect(0, 0, VIEW.width, VIEW.height); } // dusk deepening + rain grey
     if (screen === SCREEN_TITLE) {
       drawPanel('NEON BAY', [
         'A sun-soaked city after dark. You are Kai Reyes,',
@@ -1003,7 +926,16 @@ export function createRenderer(canvas) {
     };
   }
 
+  /** Lower the internal scene resolution (Perf quality 0/1/2). */
+  function setQuality(level) {
+    const q = [[640, 360, 160], [480, 270, 120], [320, 180, 80]][level] || [640, 360, 160];
+    RW = q[0]; RH = q[1]; COLS = q[2];
+    scene.width = RW; scene.height = RH;
+  }
+  /** Free the sprite/texture caches (only unique objects are held). */
+  function clearCaches() { sprites.clear(); wallTex.clear(); }
+
   resize();
   window.addEventListener('resize', resize);
-  return { draw, toScreen, toWorld };
+  return { draw, toScreen, toWorld, setQuality, clearCaches };
 }
