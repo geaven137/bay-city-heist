@@ -1,0 +1,174 @@
+// NEON BAY — the screenshot scenes behind ?shot=start|play|chase|end.
+// Each one plays the real rules forward from a fresh game with a simple
+// autopilot (walk to a car, steal it, drive the road grid toward a
+// waypoint, ram the police), so the frame is what a short game really
+// looks like and the same seed always gives the same frame. The cover
+// (start) is the title over the living city; the chase shot is the money
+// shot — wanted stars, police, minimap and a mission objective at once.
+import { CITY, STEP } from './config.js';
+import { stepGame } from './game.js';
+import { addWanted } from './police.js';
+import { startMission } from './missions.js';
+import { exitCar, nearestCar } from './vehicles.js';
+import { SCREEN_BUSTED, SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+
+const START_SECONDS = 5;
+const PLAY_SECONDS = 24;
+const CHASE_SECONDS = 22;
+const END_LIMIT_SECONDS = 100;
+
+function idleInput() {
+  return { move: { x: 0, y: 0 }, run: false, handbrake: false, aim: null, actions: 0 };
+}
+
+function walkToward(game, tx, ty) {
+  const p = game.state.player;
+  const dx = tx - p.x;
+  const dy = ty - p.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 24) return idleInput();
+  return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0 };
+}
+
+/**
+ * Drive the player's car toward (tx, ty) on the road grid: at each
+ * intersection pick the street that leads toward the target (greedy,
+ * like the police pathfind), and steer to hold that street between them.
+ */
+function driveToward(game, tx, ty) {
+  const car = game.state.player.car;
+  if (!car) return idleInput();
+  const dx = tx - car.x;
+  const dy = ty - car.y;
+  const dist = Math.hypot(dx, dy);
+  if (dist < 70) return idleInput();
+  // Remember the chosen street on the car so it holds a line between crossings.
+  if (car.autoAxis === undefined) {
+    const horizontal = Math.abs(dx) > Math.abs(dy);
+    car.autoAxis = horizontal ? 'x' : 'y';
+    car.autoDir = horizontal ? Math.sign(dx) : Math.sign(dy);
+    car.autoX = car.x;
+    car.autoY = car.y;
+  }
+  const wantAngle = car.autoAxis === 'x' ? (car.autoDir > 0 ? 0 : Math.PI) : (car.autoDir > 0 ? Math.PI / 2 : -Math.PI / 2);
+  let diff = wantAngle - car.angle;
+  while (diff > Math.PI) diff -= Math.PI * 2;
+  while (diff < -Math.PI) diff += Math.PI * 2;
+  const steer = Math.max(-1, Math.min(1, diff * 2.4));
+  // Re-pick the street every 240px of travel, so the route bends toward the target.
+  if (Math.hypot(car.x - car.autoX, car.y - car.autoY) > 240) car.autoAxis = undefined;
+  return { move: { x: steer, y: -1 }, run: false, handbrake: Math.abs(diff) > 1.2, aim: null, actions: 0 };
+}
+
+function runSteps(game, seconds, inputFn, harmless) {
+  const steps = Math.floor(seconds / STEP);
+  for (let i = 0; i < steps; i += 1) {
+    stepGame(game, STEP, inputFn(game, i), null, harmless);
+    if (game.state.wasted || game.state.busted) break;
+  }
+}
+
+/** Walk to the nearest car and steal it (up to `limit` seconds). */
+function stealNearestCar(game, limit) {
+  const steps = Math.floor(limit / STEP);
+  for (let i = 0; i < steps; i += 1) {
+    const p = game.state.player;
+    if (p.car) return true;
+    const car = nearestCar(game.state, p.x, p.y, 900);
+    let input;
+    if (car && Math.hypot(car.x - p.x, car.y - p.y) < 70) {
+      input = idleInput();
+      input.actions = 4; // ACTION_ENTER_CAR
+    } else if (car) {
+      input = walkToward(game, car.x, car.y);
+    } else input = idleInput();
+    stepGame(game, STEP, input, null, false);
+    if (game.state.wasted || game.state.busted) return false;
+  }
+  // Staging fallback: the traffic may have driven off — put the player
+  // beside the nearest car and steal it for real with the E action.
+  const p = game.state.player;
+  const car = nearestCar(game.state, p.x, p.y, 1400);
+  if (!car) return false;
+  p.x = car.x + 40;
+  p.y = car.y + 20;
+  stepGame(game, STEP, { ...idleInput(), actions: 4 }, null, false);
+  return !!game.state.player.car;
+}
+
+const DOWNTOWN_LOOP = [
+  { x: 480, y: 480 }, { x: 2560, y: 480 }, { x: 2560, y: 1760 }, { x: 480, y: 1760 },
+];
+
+/**
+ * Set `game` to the named scene (start, play, chase or end; any other name
+ * is start) and return the screen to draw over it and the best money to show.
+ */
+export function stageShot(name, game) {
+  const { state, random } = game;
+  if (name === 'play' || name === 'chase') {
+    stealNearestCar(game, 14);
+    if (name === 'play') {
+      let wp = 0;
+      runSteps(game, PLAY_SECONDS, () => {
+        const target = DOWNTOWN_LOOP[wp % DOWNTOWN_LOOP.length];
+        const car = game.state.player.car;
+        if (car && Math.hypot(car.x - target.x, car.y - target.y) < 120) wp += 1;
+        return game.state.player.car ? driveToward(game, target.x, target.y) : idleInput();
+      }, false);
+      return { screen: SCREEN_PLAY, best: state.money };
+    }
+    // Chase: a job that makes noise, three stars, and the police on us.
+    startMission(state, random, 3);
+    addWanted(state, 1, state.player.x, state.player.y);
+    runSteps(game, CHASE_SECONDS, () => {
+      const p = game.state.player;
+      if (!p.car) return idleInput();
+      // Drive at the bank, then away from it — the cops follow either way.
+      const elapsed = state.time;
+      const target = elapsed < 10 ? { x: CITY.bank.x, y: CITY.bank.y + 160 } : { x: 480, y: 1760 };
+      return driveToward(game, target.x, target.y);
+    }, false);
+    return { screen: SCREEN_PLAY, best: state.money };
+  }
+  if (name === 'end') {
+    stealNearestCar(game, 14);
+    addWanted(state, 3, state.player.x, state.player.y);
+    // Phase 1: ram the nearest cop, head-on, until the car or the player breaks.
+    runSteps(game, 40, () => {
+      const p = game.state.player;
+      if (!p.car) return idleInput();
+      let cop = null;
+      let best = Infinity;
+      for (const c of state.cars) {
+        if (c.kind !== 'police') continue;
+        const d = Math.hypot(c.x - p.car.x, c.y - p.car.y);
+        if (d < best) { best = d; cop = c; }
+      }
+      return cop ? driveToward(game, cop.x, cop.y) : idleInput();
+    }, false);
+    if (state.wasted) return { screen: SCREEN_OVER, best: state.money };
+    // Phase 2: out of the car, in front of a stopped cop — that is a bust.
+    // (Staging only: hold the cop still, as a cop that has pulled up would
+    // be; the bust itself runs through the real updatePoliceCar rule.)
+    if (state.player.car) {
+      exitCar(state);
+      const cop = state.cars.find((c) => c.kind === 'police');
+      if (cop) {
+        state.player.x = cop.x + 34;
+        state.player.y = cop.y;
+        runSteps(game, 12, () => {
+          cop.speed = 0;
+          return idleInput();
+        }, false);
+      }
+      if (state.busted) return { screen: SCREEN_BUSTED, best: state.money };
+    }
+    return { screen: state.wasted ? SCREEN_OVER : SCREEN_PLAY, best: state.money };
+  }
+  // start: the title over the living city, camera downtown.
+  state.camera.x = 1600;
+  state.camera.y = 1120;
+  runSteps(game, START_SECONDS, () => idleInput(), true);
+  return { screen: SCREEN_TITLE, best: 0 };
+}
