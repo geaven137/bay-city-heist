@@ -5,10 +5,20 @@
 import { PALETTE } from './config.js';
 import { atIntersection, nearestIntersection, randomSidewalkPoint, resolveBuildingCollision } from './world.js';
 
-export function makePed(random, x, y) {
+/**
+ * Walker kinds are looks only — same walk/flee/down rules for everyone.
+ * Police walk the beat more often when the heat is on; firefighters are
+ * a rare sight anywhere in town.
+ */
+export function makePed(random, x, y, hot) {
+  const roll = random();
+  const kind = hot
+    ? (roll < 0.22 ? 'police' : roll < 0.26 ? 'fire' : 'civilian')
+    : (roll < 0.08 ? 'police' : roll < 0.12 ? 'fire' : 'civilian');
   return {
     x, y, angle: random() * Math.PI * 2, speed: 40 + random() * 40,
     color: PALETTE.ped[Math.floor(random() * PALETTE.ped.length)],
+    kind,
     mode: 'walk', // 'walk' | 'flee' | 'down'
     fleeX: 0, fleeY: 0, timer: 1 + random() * 3, down: false, downTimer: 0,
     axis: random() < 0.5 ? 'x' : 'y', dir: random() < 0.5 ? 1 : -1,
@@ -17,7 +27,7 @@ export function makePed(random, x, y) {
 
 export function spawnPedestrian(state, random, x, y) {
   const p = randomSidewalkPoint(random, x, y);
-  const ped = makePed(random, p.x, p.y);
+  const ped = makePed(random, p.x, p.y, state.wanted > 0);
   state.peds.push(ped);
   return ped;
 }
