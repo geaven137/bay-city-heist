@@ -161,12 +161,33 @@ export function drawHud(ctx, state, speedKmh) {
       text(ctx, `${Math.round(dist)}m`, cx, cy + 26, 13, PALETTE.neonYellow, 'center', true);
     }
   }
-  // Big centre banner (mission start, WANTED, WASTED, CLEAN…).
+  // Big banner (mission start, WANTED, WASTED, CLEAN…): upper third, on a
+  // dark backing, so it stays readable over any backdrop and never covers
+  // the crosshair or the centre of the view.
   if (state.banner && state.banner.timer > 0) {
     const alpha = Math.min(1, state.banner.timer);
+    const titleY = 278;
+    const subY = 314;
+    // Width from the text itself when the context can measure (real
+    // canvas); a per-character estimate otherwise (the smoke-test stub
+    // has no measureText). Generous, so the panel never clips the text.
+    const measure = (value, size) => (typeof ctx.measureText === 'function'
+      ? ctx.measureText(value).width
+      : value.length * size * 0.58);
+    ctx.font = `700 44px ${FONT}`;
+    const wTitle = measure(state.banner.text, 44);
+    let wSub = 0;
+    if (state.banner.sub) {
+      ctx.font = `22px ${FONT}`;
+      wSub = measure(state.banner.sub, 22);
+    }
+    const bw = Math.ceil(Math.max(wTitle, wSub)) + 56;
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.fillStyle = 'rgba(8,10,18,0.78)';
+    ctx.fillRect(VIEW.width / 2 - bw / 2, 232, bw, 102);
     ctx.globalAlpha = alpha;
-    text(ctx, state.banner.text, VIEW.width / 2, VIEW.height / 2 - 40, 52, PALETTE.text, 'center', true);
-    if (state.banner.sub) text(ctx, state.banner.sub, VIEW.width / 2, VIEW.height / 2, 22, PALETTE.neonYellow, 'center');
+    text(ctx, state.banner.text, VIEW.width / 2, titleY, 44, PALETTE.text, 'center', true);
+    if (state.banner.sub) text(ctx, state.banner.sub, VIEW.width / 2, subY, 22, PALETTE.neonYellow, 'center');
     ctx.globalAlpha = 1;
   }
   // Red damage flash.

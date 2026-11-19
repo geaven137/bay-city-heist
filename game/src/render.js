@@ -463,7 +463,9 @@ export function createRenderer(canvas) {
     }
     for (const ped of state.peds) {
       if (ped.down) continue;
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 46, 0.5);
+      // People read shorter than cars: at worldH 46 a walker next to a
+      // police car looked like a giant. 34 keeps them clearly human.
+      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 34, 0.5);
       if (e) entries.push({ ...e, canvas: pedSprite(ped.color) });
     }
     for (const palm of state.city.palms) {

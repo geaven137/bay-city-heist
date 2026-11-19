@@ -6,7 +6,7 @@
 // (start) is the title over the living city; the chase shot is the money
 // shot — wanted stars, police, minimap and a mission objective at once.
 import { CITY, STEP } from './config.js';
-import { atIntersection, nearestCentre, roadCentresX, roadCentresY } from './world.js';
+import { atIntersection, hitsBuilding, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 import { stepGame } from './game.js';
 import { addWanted } from './police.js';
 import { startMission } from './missions.js';
@@ -194,7 +194,49 @@ export function stageShot(name, game) {
           return idleInput();
         }, false);
       }
-      if (state.busted) return { screen: SCREEN_BUSTED, best: state.money };
+      if (state.busted) {
+        // Reposition the eye for the final frame: the bust puts the player
+        // 34 units in front of a cop, and the camera had been pulled in
+        // by a wall behind (eye 23 units behind the player, cop 57 from
+        // the eye), so the cop car filled the frame. A straight pull-back
+        // is blocked by that same wall, so search: step back until the
+        // nearest cop reads ~170 units deep, sidestepping to clear the
+        // wall's corner, and only accept a spot that is open and has a
+        // clear line to the cop. Steps have stopped, so the camera stays.
+        const cam = state.camera;
+        const fx = Math.cos(cam.angle);
+        const fy = Math.sin(cam.angle);
+        const px = -fy;
+        const py = fx;
+        const depthOf = (cx, cy) => (cop.x - cx) * fx + (cop.y - cy) * fy;
+        const clearToCop = (cx, cy) => {
+          const dx = cop.x - cx;
+          const dy = cop.y - cy;
+          const d = Math.hypot(dx, dy);
+          const steps = Math.ceil(d / 8);
+          for (let i = 1; i < steps; i += 1) {
+            if (hitsBuilding(state.city, cx + (dx * i) / steps, cy + (dy * i) / steps, 10)) return false;
+          }
+          return true;
+        };
+        const need = Math.max(0, 170 - depthOf(cam.x, cam.y));
+        let placed = false;
+        for (let back = need; back <= need + 72 && !placed; back += 12) {
+          for (const lat of [0, -48, 48, -96, 96]) {
+            const nx = cam.x - fx * back + px * lat;
+            const ny = cam.y - fy * back + py * lat;
+            if (nx < 40 || nx > CITY.width - 40 || ny < 40 || ny > CITY.height - 40) continue;
+            if (hitsBuilding(state.city, nx, ny, 14)) continue;
+            if (!clearToCop(nx, ny)) continue;
+            if (depthOf(nx, ny) < 150) continue;
+            cam.x = nx;
+            cam.y = ny;
+            placed = true;
+            break;
+          }
+        }
+        return { screen: SCREEN_BUSTED, best: state.money };
+      }
     }
     return { screen: state.wasted ? SCREEN_OVER : SCREEN_PLAY, best: state.money };
   }
