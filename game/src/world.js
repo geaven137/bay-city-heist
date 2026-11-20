@@ -1,9 +1,3 @@
-// NEON BAY — the city and the shared game state.
-// The city is a deterministic grid generated from the seed: roads every
-// CITY.pitch pixels, blocks of buildings, parks, a beach strip in the south,
-// and the named story locations (hospital, precinct, safehouse, garage,
-// hotel, bank). No drawing and no browser in here — only data, collision
-// and road helpers the other systems share.
 import { CITY, PALETTE, PLAYER } from './config.js';
 
 export const roadCentresX = [];
@@ -12,8 +6,7 @@ for (let x = CITY.pitch / 2; x < CITY.width; x += CITY.pitch) roadCentresX.push(
 for (let y = CITY.pitch / 2; y < CITY.height; y += CITY.pitch) roadCentresY.push(y);
 
 export function nearestCentre(list, value) {
-  let best = list[0];
-  let bestD = Math.abs(value - best);
+  let best = list[0], bestD = Math.abs(value - best);
   for (const c of list) {
     const d = Math.abs(value - c);
     if (d < bestD) { bestD = d; best = c; }
@@ -21,16 +14,13 @@ export function nearestCentre(list, value) {
   return best;
 }
 
-/** True when the point is on asphalt (within half a road of a centre line). */
 export function isOnRoad(x, y) {
   return Math.abs(x - nearestCentre(roadCentresX, x)) <= CITY.road / 2
     || Math.abs(y - nearestCentre(roadCentresY, y)) <= CITY.road / 2;
 }
 
-/** True when the point is on the southern beach strip. */
 export function isOnBeach(x, y) { return y >= CITY.beachY; }
 
-/** True when the point is near a crossing of two roads. */
 export function atIntersection(x, y, radius = 46) {
   return Math.abs(x - nearestCentre(roadCentresX, x)) <= radius
     && Math.abs(y - nearestCentre(roadCentresY, y)) <= radius;
@@ -40,16 +30,11 @@ export function nearestIntersection(x, y) {
   return { x: nearestCentre(roadCentresX, x), y: nearestCentre(roadCentresY, y) };
 }
 
-/**
- * Right-hand lane offset for a road user travelling along `axis` ('x' or
- * 'y') in direction `dir` (+1 or -1): the lane sits on the driver's right.
- */
 export function laneOffset(axis, dir) {
   if (axis === 'x') return dir > 0 ? 16 : -16;
   return dir > 0 ? -16 : 16;
 }
 
-/** A random point on a road, between minDist and maxDist from (x, y). */
 export function randomRoadPoint(random, x, y, minDist, maxDist) {
   for (let tries = 0; tries < 24; tries += 1) {
     const vertical = random() < 0.5;
@@ -63,12 +48,10 @@ export function randomRoadPoint(random, x, y, minDist, maxDist) {
   return { x: nearestCentre(roadCentresX, x), y: nearestCentre(roadCentresY, y) };
 }
 
-/** A random sidewalk point (just off a road) near (x, y). */
 export function randomSidewalkPoint(random, x, y, radius = 500) {
   const cx = nearestCentre(roadCentresX, x + (random() - 0.5) * radius * 2);
   const cy = nearestCentre(roadCentresY, y + (random() - 0.5) * radius * 2);
-  const vertical = random() < 0.5;
-  if (vertical) return { x: cx + CITY.road / 2 + 12, y: Math.max(40, Math.min(CITY.height - 40, y + (random() - 0.5) * radius)) };
+  if (random() < 0.5) return { x: cx + CITY.road / 2 + 12, y: Math.max(40, Math.min(CITY.height - 40, y + (random() - 0.5) * radius)) };
   return { x: Math.max(40, Math.min(CITY.width - 40, x + (random() - 0.5) * radius)), y: cy + CITY.road / 2 + 12 };
 }
 
@@ -79,16 +62,12 @@ function buildingAt(city, x, y) {
   return null;
 }
 
-/** Push a circle out of every building it overlaps; returns corrected {x, y}. */
 export function resolveBuildingCollision(city, x, y, radius) {
-  let px = x;
-  let py = y;
+  let px = x, py = y;
   for (const b of city.buildings) {
     const nx = Math.max(b.x, Math.min(px, b.x + b.w));
     const ny = Math.max(b.y, Math.min(py, b.y + b.h));
-    const dx = px - nx;
-    const dy = py - ny;
-    const d2 = dx * dx + dy * dy;
+    const dx = px - nx, dy = py - ny, d2 = dx * dx + dy * dy;
     if (d2 >= radius * radius) continue;
     if (d2 === 0) { py = b.y - radius; continue; }
     const d = Math.sqrt(d2);
@@ -98,7 +77,6 @@ export function resolveBuildingCollision(city, x, y, radius) {
   return { x: px, y: py };
 }
 
-/** True when a circle of `radius` at (x, y) touches any building. */
 export function hitsBuilding(city, x, y, radius) {
   return buildingAt(city, x, y) !== null
     || buildingAt(city, x - radius, y) !== null || buildingAt(city, x + radius, y) !== null
@@ -121,10 +99,8 @@ function makeBuilding(random, bx, by, bw, bh, name) {
   };
 }
 
-/** Build the whole city from the seed. Deterministic: same seed, same city. */
 export function createCity(random) {
-  const buildings = [];
-  const parks = [];
+  const buildings = [], parks = [];
   const named = [
     { key: 'hospital', w: 200, h: 140 }, { key: 'precinct', w: 180, h: 120 },
     { key: 'safehouse', w: 150, h: 110 }, { key: 'garage', w: 190, h: 120 },
@@ -134,8 +110,7 @@ export function createCity(random) {
     for (let i = 0; i < roadCentresX.length - 1; i += 1) {
       const bx = roadCentresX[i] + CITY.road / 2;
       const by = roadCentresY[j] + CITY.road / 2;
-      const bw = CITY.block;
-      const bh = CITY.block;
+      const bw = CITY.block, bh = CITY.block;
       if (by + bh >= CITY.beachY) continue;
       const roll = random();
       if (roll < 0.14) {
@@ -159,9 +134,8 @@ export function createCity(random) {
         buildings.push(b);
         continue;
       }
-      if (roll < 0.55) {
-        buildings.push(makeBuilding(random, bx, by, bw, bh, null));
-      } else {
+      if (roll < 0.55) buildings.push(makeBuilding(random, bx, by, bw, bh, null));
+      else {
         buildings.push(makeBuilding(random, bx, by, bw / 2 - 4, bh, null));
         buildings.push(makeBuilding(random, bx + bw / 2 + 4, by, bw / 2 - 4, bh, null));
       }
@@ -190,33 +164,19 @@ export function createCity(random) {
   return { buildings, parks, palms, lamps, width: CITY.width, height: CITY.height };
 }
 
-/** The whole mutable game state, fresh from a seed. */
 export function createState(city, random) {
   return {
-    city,
-    time: 0,
-    money: 60,
-    health: PLAYER.health,
-    ammo: PLAYER.startAmmo,
-    wanted: 0,
-    wantedPoints: 0,
-    unseenTimer: 0,
+    city, time: 0, money: 60, health: PLAYER.health, ammo: PLAYER.startAmmo,
+    wanted: 0, wantedPoints: 0, unseenTimer: 0,
     player: {
       x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2,
       onFoot: true, car: null, punchTimer: 0, shootTimer: 0,
       hurtTimer: 0, regenTimer: 0, moving: false, running: false,
     },
-    cars: [],
-    peds: [],
-    bullets: [],
-    particles: [],
-    mission: null,
-    missionsDone: 0,
-    storyDone: false,
+    cars: [], peds: [], bullets: [], particles: [],
+    mission: null, missionsDone: 0, storyDone: false,
     camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2, fov: 1.15, shoulder: 0, shake: 0 },
-    wasted: false,
-    busted: false,
-    endTimer: 0,
+    wasted: false, busted: false, endTimer: 0,
     stats: { carsStolen: 0, missionsDone: 0, shotsFired: 0, pedsDown: 0 },
     banner: null, // {text, sub, timer} — big centre message (mission, WASTED…)
     flash: 0, // red damage flash, 0..1

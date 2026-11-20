@@ -1,12 +1,7 @@
-// NEON BAY — pedestrians: walkers on the sidewalks.
-// Each walker strolls along a sidewalk, turns at intersections, and flees
-// from gunshots, crashes and the player's car. Knocked-down walkers stay
-// down for a while, then get up and walk away.
 import { PALETTE } from './config.js';
 import { HL } from './patchkit.js';
 import { atIntersection, nearestIntersection, randomSidewalkPoint, resolveBuildingCollision } from './world.js';
 
-/** Walker kinds are looks only — same walk/flee/down rules for everyone. Police walk the beat more often when the heat is on; firefighters are */
 export function makePed(random, x, y, hot) {
   const roll = random();
   const kind = hot
@@ -15,8 +10,7 @@ export function makePed(random, x, y, hot) {
   return {
     x, y, angle: random() * Math.PI * 2, speed: 40 + random() * 40,
     color: PALETTE.ped[Math.floor(random() * PALETTE.ped.length)],
-    kind,
-    mode: 'walk', // 'walk' | 'flee' | 'down'
+    kind, mode: 'walk', // 'walk' | 'flee' | 'down'
     fleeX: 0, fleeY: 0, timer: 1 + random() * 3, down: false, downTimer: 0,
     axis: random() < 0.5 ? 'x' : 'y', dir: random() < 0.5 ? 1 : -1,
   };
@@ -29,12 +23,10 @@ export function spawnPedestrian(state, random, x, y) {
   return ped;
 }
 
-/** Scare every walker near (x, y): they run away from it. */
 export function scarePedestrians(state, x, y, radius = 260) {
   for (const ped of state.peds) {
     if (ped.down) continue;
-    const d = Math.hypot(ped.x - x, ped.y - y);
-    if (d < radius) {
+    if (Math.hypot(ped.x - x, ped.y - y) < radius) {
       ped.mode = 'flee';
       ped.fleeX = x;
       ped.fleeY = y;
@@ -64,14 +56,12 @@ export function updatePedestrian(state, ped, dt, random) {
     if (ped.timer <= 0) ped.mode = 'walk';
   } else {
     ped.timer -= dt;
-    const speed = ped.speed;
-    ped.x += Math.cos(ped.angle) * speed * dt;
-    ped.y += Math.sin(ped.angle) * speed * dt;
+    ped.x += Math.cos(ped.angle) * ped.speed * dt;
+    ped.y += Math.sin(ped.angle) * ped.speed * dt;
     if (ped.timer <= 0 || atIntersection(ped.x, ped.y, 30)) {
       ped.timer = 2 + random() * 4;
       const node = nearestIntersection(ped.x, ped.y);
-      const options = [0, Math.PI / 2, -Math.PI / 2, Math.PI];
-      ped.angle += options[Math.floor(random() * options.length)];
+      ped.angle += [0, Math.PI / 2, -Math.PI / 2, Math.PI][Math.floor(random() * 4)];
       ped.x = node.x + (random() - 0.5) * 20;
       ped.y = node.y + (random() - 0.5) * 20;
     }
@@ -83,17 +73,12 @@ export function updatePedestrian(state, ped, dt, random) {
   ped.y = Math.max(16, Math.min(state.city.height - 16, ped.y));
 }
 
-/** Keep the walker population full near the player; cull far-away ones. */
 export function maintainPedestrians(state, random, target = 22) {
   const p = state.player;
   state.peds = state.peds.filter((ped) => Math.hypot(ped.x - p.x, ped.y - p.y) < 1200);
   for (let i = state.peds.length; i < target; i += 1) spawnPedestrian(state, random, p.x, p.y);
 }
 
-/**
- * Knock a walker down (punch, bullet, car hit). Returns true when it was
- * a fresh knock-down (the crime counts once per walker).
- */
 export function knockDownPed(state, ped, addWanted) {
   if (ped.down) return false;
   ped.down = true;

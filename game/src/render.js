@@ -1,10 +1,11 @@
-// NEON BAY — 3D renderer (Three.js r158, low-poly, golden hour). Sim (x,y) -> three (x,0,y).
-import { CITY, FONT, PALETTE, VIEW } from './config.js';
+import { CAM3D, CITY, FONT, PALETTE, VIEW } from './config.js';
 import { drawCrosshair, drawHud } from './hud.js';
 import { HL } from './patchkit.js';
 import { missionTarget } from './missions.js';
 import { roadCentresX, roadCentresY } from './world.js';
 import { carSpeedKmh } from './vehicles.js';
+import { createFleet } from './fleet.js';
+import { drawShop } from './shop.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -114,8 +115,6 @@ export function createRenderer(canvas, hudCanvas) {
   hudCanvas = hudCanvas || canvas;
   const hudCtx = hudCanvas.getContext('2d');
   const view = { scale: 1, x: 0, y: 0 };
-  // No real GL context (Node smoke test): build the scene graph and sync
-  // it, but skip the actual pixels. The game still runs and the HUD draws.
   let renderer = null;
   try {
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -185,13 +184,6 @@ export function createRenderer(canvas, hudCanvas) {
   sea.position.set(CITY.width / 2, 0.4, CITY.height + 330);
   scene.add(sea);
 
-  let cityBuilt = null;
-  let bldgMesh = null, roofMesh = null;
-  const signMeshes = [];
-  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  const facadeTex = facadeTexture();
-  const bldgMat = new THREE.MeshLambertMaterial({ map: facadeTex });
-  const roofMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
   const tmpM = new THREE.Matrix4();
   const tmpQ = new THREE.Quaternion();
   const tmpV = new THREE.Vector3();
@@ -199,6 +191,18 @@ export function createRenderer(canvas, hudCanvas) {
   const tmpC = new THREE.Color();
   const tmpM2 = new THREE.Matrix4();
   const tmpQ2 = new THREE.Quaternion();
+  const _e = new THREE.Euler();
+  const _q = new THREE.Quaternion();
+  const _v = new THREE.Vector3();
+  const _s = new THREE.Vector3();
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+
+  let cityBuilt = null;
+  let bldgMesh = null, roofMesh = null;
+  const signMeshes = [];
+  const facadeTex = facadeTexture();
+  const bldgMat = new THREE.MeshLambertMaterial({ map: facadeTex });
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
   function buildCity(city) {
     if (cityBuilt === city) return;
@@ -239,9 +243,7 @@ export function createRenderer(canvas, hudCanvas) {
   function buildVeg(city) {
     if (vegBuilt === city) return;
     vegBuilt = city;
-    const trunks = [];
-    const fronds = [];
-    const canopies = [];
+    const trunks = [], fronds = [], canopies = [];
     for (const p of city.palms) { trunks.push({ x: p.x, y: p.y, h: 46, lean: p.lean }); fronds.push({ x: p.x, y: p.y, h: 46 }); }
     for (const park of city.parks) for (const t of park.trees) {
       trunks.push({ x: t.x, y: t.y, h: 26, lean: 0 });
@@ -305,6 +307,12 @@ export function createRenderer(canvas, hudCanvas) {
   scene.add(carBody); scene.add(carCabin); scene.add(carWheel);
   scene.add(carHead); scene.add(carTail); scene.add(carBar); scene.add(carStripe);
   const carDark = new THREE.Color();
+  const FLEET_SHAPE = {
+    pumper: [30, 18, 84, 26, 12, 30], ladder: [30, 18, 108, 26, 12, 30],
+    rescue: [30, 18, 84, 26, 12, 30], arff: [34, 20, 92, 28, 12, 32],
+    ambulance: [28, 20, 62, 24, 12, 30],
+    'moto-sport': [12, 10, 40, 8, 6, 18], 'moto-cruiser': [12, 10, 44, 8, 6, 18], 'moto-enduro': [12, 11, 42, 8, 6, 18],
+  };
   function syncCars(state, dt, time) {
     const cars = state.cars;
     const n = Math.min(cars.length, MAXCARS);
@@ -317,31 +325,36 @@ export function createRenderer(canvas, hudCanvas) {
       c._pa = c.angle;
       const roll = clamp(-turn * 2.2, -0.09, 0.09);
       c._spin = (c._spin || 0) + (c.speed * dt) / 7;
+      const shape = FLEET_SHAPE[c.fleet] || [26, 12, 54, 22, 10, 28];
+      const isMoto = !!c.fleet && c.fleet.startsWith('moto');
       tmpQ.setFromEuler(new THREE.Euler(0, rotY(c.angle), roll, 'YXZ'));
-      tmpM.compose(tmpV.set(c.x, 8, c.y), tmpQ, tmpS.set(26, 12, 54));
+      tmpM.compose(tmpV.set(c.x, isMoto ? 5 : 8, c.y), tmpQ, tmpS.set(shape[0], shape[1], shape[2]));
       carBody.setMatrixAt(i, tmpM);
       carDark.set(c.color);
       if (c.wrecked) carDark.multiplyScalar(0.35);
       carBody.setColorAt(i, carDark);
-      tmpM.compose(tmpV.set(c.x - fwd.x * 4, 18, c.y - fwd.y * 4), tmpQ, tmpS.set(22, 10, 28));
+      tmpM.compose(tmpV.set(c.x - fwd.x * 4, isMoto ? 11 : 18, c.y - fwd.y * 4), tmpQ, tmpS.set(shape[3], shape[4], shape[5]));
       carCabin.setMatrixAt(i, tmpM);
       tmpQ2.setFromEuler(_e.set(0, rotY(c.angle), roll, 'YXZ'));
-      for (const f of [18, -18]) for (const s of [11, -11]) {
+      const wheelSpots = isMoto ? [[18, 0], [-18, 0]] : [[18, 11], [18, -11], [-18, 11], [-18, -11]];
+      for (const [f, s] of wheelSpots) {
         const wx = c.x + fwd.x * f + rgt.x * s;
         const wy = c.y + fwd.y * f + rgt.y * s;
         _q.setFromEuler(_e.set(c._spin, 0, 0));
         tmpQ.copy(tmpQ2).multiply(_q);
-        tmpM.compose(tmpV.set(wx, 7, wy), tmpQ, tmpS.set(1, 1, 1));
+        tmpM.compose(tmpV.set(wx, isMoto ? 5 : 7, wy), tmpQ, tmpS.set(1, 1, 1));
         carWheel.setMatrixAt(wi, tmpM);
         wi += 1;
       }
-      for (const s of [8, -8]) {
-        tmpQ.setFromEuler(new THREE.Euler(0, rotY(c.angle), 0, 'YXZ'));
-        tmpM.compose(tmpV.set(c.x + fwd.x * 27 + rgt.x * s, 9, c.y + fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
-        carHead.setMatrixAt(hi, tmpM);
-        tmpM.compose(tmpV.set(c.x - fwd.x * 27 + rgt.x * s, 9, c.y - fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
-        carTail.setMatrixAt(hi, tmpM);
-        hi += 1;
+      if (!isMoto) {
+        for (const s of [8, -8]) {
+          tmpQ.setFromEuler(new THREE.Euler(0, rotY(c.angle), 0, 'YXZ'));
+          tmpM.compose(tmpV.set(c.x + fwd.x * 27 + rgt.x * s, 9, c.y + fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
+          carHead.setMatrixAt(hi, tmpM);
+          tmpM.compose(tmpV.set(c.x - fwd.x * 27 + rgt.x * s, 9, c.y - fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
+          carTail.setMatrixAt(hi, tmpM);
+          hi += 1;
+        }
       }
       if (c.kind === 'police' && bi < 8) {
         tmpM.compose(tmpV.set(c.x, 26, c.y), tmpQ, tmpS.set(16, 4, 8));
@@ -380,11 +393,6 @@ export function createRenderer(canvas, hudCanvas) {
   const skinC = new THREE.Color(0xc98a5a);
   const skin2 = new THREE.Color(0x8a5a3a);
   const skin3 = new THREE.Color(0xe8b88a);
-  const _e = new THREE.Euler();
-  const _q = new THREE.Quaternion();
-  const _v = new THREE.Vector3();
-  const _s = new THREE.Vector3();
-  /** Compose one body part: root at (x, y, z) with yaw, then local offset + rotation. */
   function part(mesh, idx, x, y, z, yaw, lie, ox, oy, oz, rx, sx, sy, sz, color) {
     _q.setFromEuler(_e.set(lie ? -P2 : 0, yaw, 0, 'YXZ'));
     _v.set(x, y, z);
@@ -481,7 +489,7 @@ export function createRenderer(canvas, hudCanvas) {
     const shot = !!state._hlShot; // staged shot: park the heli in frame (low, ahead) instead of letting it fly in
     const tx = px + fx * 150 - fy * (shot ? 40 : 50);
     const ty = py + fy * 150 + fx * (shot ? 40 : 50);
-    const hh = shot ? 85 : 170;
+    const hh = shot ? 85 : CAM3D.heliHeight;
     if (shot) { heliPos.x = tx; heliPos.y = hh; heliPos.z = ty; }
     else {
       heliPos.x = lerp(heliPos.x, tx, Math.min(1, dt * 1.2));
@@ -588,6 +596,8 @@ export function createRenderer(canvas, hudCanvas) {
     for (; si < 4; si += 1) smokes[si].visible = false;
   }
 
+  const fleet = createFleet(THREE, scene);
+
   let lastTime = 0;
   let qualityLevel = 0;
   const _eye = new THREE.Vector3();
@@ -601,8 +611,8 @@ export function createRenderer(canvas, hudCanvas) {
     const ty = p.car ? p.car.y : p.y;
     const driving = !!p.car;
     const aiming = p.aiming && !driving;
-    const eyeH = driving ? 52 : (aiming ? 36 : 40);
-    const lookH = driving ? 12 : (aiming ? 30 : 28);
+    const eyeH = driving ? CAM3D.eyeDrive : (aiming ? CAM3D.eyeAim : CAM3D.eyeFoot);
+    const lookH = driving ? CAM3D.lookDrive : (aiming ? CAM3D.lookAim : CAM3D.lookFoot);
     const th = cam.angle ?? -P2;
     _rgt.set(-Math.sin(th), 0, Math.cos(th));
     const sh = (cam.shoulder || 0) * -0.6;
@@ -669,6 +679,7 @@ export function createRenderer(canvas, hudCanvas) {
     syncHeli(state, dt, time);
     syncRain(state, dt, state.camera.x, state.camera.y);
     syncFx(state, dt, time);
+    fleet.update(dt, time, state);
     renderer.render(scene, camera);
     hudCtx.setTransform(1, 0, 0, 1, 0, 0);
     hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
@@ -688,6 +699,7 @@ export function createRenderer(canvas, hudCanvas) {
     }
     const speedKmh = state.player.car ? carSpeedKmh(state.player.car) : null;
     drawHud(hudCtx, state, speedKmh);
+    drawShop(hudCtx, state);
     if (screen === SCREEN_PLAY) drawCrosshair(hudCtx, state);
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', '', 'Progress saves when a job ends.'], 'Press P to resume • S to save now');
@@ -706,7 +718,7 @@ export function createRenderer(canvas, hudCanvas) {
     const t = -camera.position.y / dir.y;
     return { x: camera.position.x + dir.x * t, y: camera.position.z + dir.z * t };
   }
-    function toScreen(wx, wy, cam) {
+  function toScreen(wx, wy, cam) {
     const v = new THREE.Vector3(wx, 0, wy).project(camera);
     return { x: ((v.x + 1) / 2) * VIEW.width, y: ((1 - v.y) / 2) * VIEW.height };
   }
@@ -724,7 +736,6 @@ export function createRenderer(canvas, hudCanvas) {
     if (bldgMesh) { scene.remove(bldgMesh); scene.remove(roofMesh); bldgMesh = null; roofMesh = null; }
   }
 
-  /** Scene stats for tests: counts, heli, and whether the player is in frame. */
   function stats(state) {
     const p = state.player;
     const px = p.car ? p.car.x : p.x;

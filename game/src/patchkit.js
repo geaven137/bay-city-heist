@@ -1,15 +1,17 @@
-// NEON BAY — Harbourlight Patch Kit, adapted from the module description.
-// Original harbourlight-patch-kit.js was never provided; this is a fresh
-// Canvas 2D adaptation (no Three.js/WebGL, no libs, no network). Pure logic
-// is testable in Node; browser parts guard `window`.
-import { CITY, MISSIONS, PALETTE, WANTED } from './config.js';
+import { CITY, PALETTE, WANTED } from './config.js';
 import { hitsBuilding, isOnRoad, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 import { makeCar } from './vehicles.js';
+
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const d2 = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 const angD = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
 const h2 = (a, b) => { const h = (a * 374761393 + b * 668265263) % 1000; return ((h % 1000) + 1000) % 1000 / 1000; }; // deterministic 0..1, no shared RNG
-const segD = (px, py, ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1; let t = ((px - ax) * dx + (py - ay) * dy) / l2; t = t < 0 ? 0 : t > 1 ? 1 : t; return Math.hypot(px - (ax + t * dx), py - (ay + t * dy)); };
+const segD = (px, py, ax, ay, bx, by) => {
+  const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+  let t = ((px - ax) * dx + (py - ay) * dy) / l2;
+  t = t < 0 ? 0 : t > 1 ? 1 : t;
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+};
 const listeners = {};
 function on(ev, fn) { (listeners[ev] || (listeners[ev] = [])).push(fn); }
 function emit(ev, data) { const l = listeners[ev]; if (l) for (const f of l) { try { f(data); } catch {} } }
@@ -25,11 +27,23 @@ const Save = {
   exists(st) { try { const s = store(st); return !!(s.getItem(SK) || s.getItem(SB) || s.getItem(S1)); } catch { return false; } },
   _read(st, key) { try { const raw = store(st).getItem(key); if (!raw) return null; const o = JSON.parse(raw); if (o.v !== 2 || o.sum !== sum(o.p)) return null; return JSON.parse(o.p); } catch { return null; } },
   _write(st, data) { try { const s = store(st); const p = JSON.stringify(data); const cur = s.getItem(SK); if (cur) s.setItem(SB, cur); s.setItem(SK, JSON.stringify({ v: 2, sum: sum(p), p })); return true; } catch { return false; } },
-  load(st) { const d = this._read(st, SK) || this._read(st, SB); if (d) return d; try { const raw = store(st).getItem(S1); if (raw) return this.migrations[1](JSON.parse(raw)); } catch {} return null; },
+  load(st) {
+    const d = this._read(st, SK) || this._read(st, SB);
+    if (d) return d;
+    try { const raw = store(st).getItem(S1); if (raw) return this.migrations[1](JSON.parse(raw)); } catch {}
+    return null;
+  },
   save(st, data) { return this._write(st, data); },
   _last: 0,
   autosave(st, collect, force) { const now = Date.now() / 1000; if (!force && now - this._last < 10) return false; this._last = now; return this._write(st, collect()); },
-  collect(state) { return { money: state.money, health: state.health, ammo: state.ammo, missionsDone: state.missionsDone, storyDone: !!state.storyDone, x: state.player.x, y: state.player.y, time: state.time, profile: Profile.serialize(), economy: Economy.serialize(), skyTime: Sky.serialize() }; },
+  collect(state) {
+    return {
+      money: state.money, health: state.health, ammo: state.ammo,
+      missionsDone: state.missionsDone, storyDone: !!state.storyDone,
+      x: state.player.x, y: state.player.y, time: state.time,
+      profile: Profile.serialize(), economy: Economy.serialize(), skyTime: Sky.serialize(),
+    };
+  },
   apply(state, data) {
     if (!data) return false;
     state.money = data.money ?? 60; state.health = data.health ?? 100; state.ammo = data.ammo ?? 24;
@@ -47,7 +61,13 @@ const Guard = {
 function loop(fn) {
   let last = (typeof performance !== 'undefined' ? performance.now() : 0);
   let on = true;
-  const tick = (now) => { if (!on) return; if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(tick); const dt = Guard.clampDt(Math.max(0, (now - last) / 1000)); last = now; Guard.run(() => fn(dt)); };
+  const tick = (now) => {
+    if (!on) return;
+    if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(tick);
+    const dt = Guard.clampDt(Math.max(0, (now - last) / 1000));
+    last = now;
+    Guard.run(() => fn(dt));
+  };
   if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(tick);
   return () => { on = false; };
 }
@@ -68,7 +88,13 @@ const Audio = {
     if (this._on || typeof window === 'undefined') return;
     this._on = true;
     let done = false;
-    const go = () => { if (done) return; done = true; try { unlock(); } catch {} window.removeEventListener('pointerdown', go); window.removeEventListener('keydown', go); };
+    const go = () => {
+      if (done) return;
+      done = true;
+      try { unlock(); } catch {}
+      window.removeEventListener('pointerdown', go);
+      window.removeEventListener('keydown', go);
+    };
     window.addEventListener('pointerdown', go);
     window.addEventListener('keydown', go);
   },
@@ -78,20 +104,30 @@ const Bounds = {
   reset() { this._safe = null; this._t = 0; this._stuck = 0; },
   update(dt, city, ent, moving) {
     this._t += dt;
-    if (this._t > 1) { this._t = 0; if (isOnRoad(city, ent.x, ent.y) && isFinite(ent.x) && isFinite(ent.y)) this._safe = { x: ent.x, y: ent.y }; }
+    if (this._t > 1) {
+      this._t = 0;
+      if (isOnRoad(ent.x, ent.y) && isFinite(ent.x) && isFinite(ent.y)) this._safe = { x: ent.x, y: ent.y };
+    }
     if (moving) {
-      if (d2(ent.x, ent.y, this._lx, this._ly) < 2) { this._stuck += dt; if (this._stuck > 8) { this._stuck = 0; return this._safe || { x: CITY.safehouse.x, y: CITY.safehouse.y + 120 }; } }
-      else this._stuck = 0;
+      if (d2(ent.x, ent.y, this._lx, this._ly) < 2) {
+        this._stuck += dt;
+        if (this._stuck > 8) { this._stuck = 0; return this._safe || { x: CITY.safehouse.x, y: CITY.safehouse.y + 120 }; }
+      } else this._stuck = 0;
     } else this._stuck = 0;
     this._lx = ent.x; this._ly = ent.y;
-    if (!isFinite(ent.x) || !isFinite(ent.y) || ent.x < 0 || ent.y < 0 || ent.x > city.width || ent.y > city.height) return this._safe || { x: CITY.safehouse.x, y: CITY.safehouse.y + 120 };
+    if (!isFinite(ent.x) || !isFinite(ent.y) || ent.x < 0 || ent.y < 0 || ent.x > city.width || ent.y > city.height) {
+      return this._safe || { x: CITY.safehouse.x, y: CITY.safehouse.y + 120 };
+    }
     return null;
   },
 };
 const Missions = {
   cp: null, _stage: -1, _best: 0, _still: 0, _stuck: false,
   reset() { this.cp = null; this._stage = -1; this._best = 0; this._still = 0; this._stuck = false; },
-  checkpoint(state) { if (!state.mission) return; this.cp = { index: state.mission.index, stage: state.mission.stageIndex, x: state.player.x, y: state.player.y, money: state.money }; },
+  checkpoint(state) {
+    if (!state.mission) return;
+    this.cp = { index: state.mission.index, stage: state.mission.stageIndex, x: state.player.x, y: state.player.y, money: state.money };
+  },
   retry(state, random, startMission) {
     if (!this.cp) return false;
     const cp = this.cp;
@@ -108,7 +144,13 @@ const Missions = {
     if (!m) { this._stage = -1; this._stuck = false; return; }
     const px = state.player.car ? state.player.car.x : state.player.x;
     const py = state.player.car ? state.player.car.y : state.player.y;
-    if (m.stageIndex !== this._stage) { this._stage = m.stageIndex; this.checkpoint(state); this._still = 0; this._stuck = false; const t = m.stages[m.stageIndex]; this._best = t && t.x !== undefined ? d2(px, py, t.x, t.y) : 0; }
+    if (m.stageIndex !== this._stage) {
+      this._stage = m.stageIndex;
+      this.checkpoint(state);
+      this._still = 0; this._stuck = false;
+      const t = m.stages[m.stageIndex];
+      this._best = t && t.x !== undefined ? d2(px, py, t.x, t.y) : 0;
+    }
     const t = m.stages[m.stageIndex];
     if (!t || t.x === undefined || t.type === 'escape' || t.type === 'wait') return;
     const d = d2(px, py, t.x, t.y);
@@ -142,7 +184,9 @@ const Witness = {
     if (d > 520 || d < 1) return false;
     if (d < 60) return true; // right there — they feel it, whatever they face
     if (Math.abs(angD(Math.atan2(y - ped.y, x - ped.x), ped.angle)) > 0.9) return false;
-    for (let i = 1; i <= 6; i++) { if (hitsBuilding(city, ped.x + (x - ped.x) * i / 7, ped.y + (y - ped.y) * i / 7, 0)) return false; }
+    for (let i = 1; i <= 6; i++) {
+      if (hitsBuilding(city, ped.x + (x - ped.x) * i / 7, ped.y + (y - ped.y) * i / 7, 0)) return false;
+    }
     return true;
   },
   near(state, x, y, radius) {
@@ -162,7 +206,9 @@ const Wanted = {
   seen(state, crime, x, y) {
     if (crime === 'alarm') return true;
     const w = Witness.near(state, x, y, 520);
-    if (crime === 'shoot') { for (const car of state.cars) if (car.kind === 'police' && d2(car.x, car.y, x, y) <= 900 && !w.includes(car)) w.push(car); }
+    if (crime === 'shoot') {
+      for (const car of state.cars) if (car.kind === 'police' && d2(car.x, car.y, x, y) <= 900 && !w.includes(car)) w.push(car);
+    }
     return w.length > 0;
   },
   update(state, dt, random) {
@@ -170,7 +216,12 @@ const Wanted = {
     const nearCop = state.cars.some((c) => c.kind === 'police' && !c.roadblock && d2(c.x, c.y, p.x, p.y) < 900);
     if (state.wanted > 0 && !nearCop) {
       this._lost += dt;
-      if (this._lost > 5) { this._lost = 0; state.wantedPoints = Math.max(0, state.wantedPoints - 1); state.wanted = Math.min(WANTED.maxStars, state.wantedPoints); emit('wanted:change', { to: state.wanted }); }
+      if (this._lost > 5) {
+        this._lost = 0;
+        state.wantedPoints = Math.max(0, state.wantedPoints - 1);
+        state.wanted = Math.min(WANTED.maxStars, state.wantedPoints);
+        emit('wanted:change', { to: state.wanted });
+      }
     } else this._lost = 0;
     SpikeStrip.update(state, dt);
     Roadblock.update(state, dt, random);
@@ -186,7 +237,9 @@ const SpikeStrip = {
     state._hlSpikes = sp.filter((s) => s.t > 0);
     for (const car of state.cars) {
       if (car.flat) continue;
-      for (const s of state._hlSpikes) { if (segD(car.x, car.y, s.ax, s.ay, s.bx, s.by) < 22) { car.flat = true; emit('vehicle:tirePop', { id: car.id }); break; } }
+      for (const s of state._hlSpikes) {
+        if (segD(car.x, car.y, s.ax, s.ay, s.bx, s.by) < 22) { car.flat = true; emit('vehicle:tirePop', { id: car.id }); break; }
+      }
     }
   },
 };
@@ -210,18 +263,27 @@ const Roadblock = {
     const r = this.plan(state, 700);
     Wanted._rbAt = state.time;
     const px = Math.cos(r.heading + Math.PI / 2), py = Math.sin(r.heading + Math.PI / 2);
-    for (const s of [-28, 28]) { const car = makeCar(random, r.x + px * s, r.y + py * s, r.heading + Math.PI / 2, 'police', PALETTE.police); car.roadblock = true; car.targetSpeed = 0; car.driver = 'police'; state.cars.push(car); }
+    for (const s of [-28, 28]) {
+      const car = makeCar(random, r.x + px * s, r.y + py * s, r.heading + Math.PI / 2, 'police', PALETTE.police);
+      car.roadblock = true; car.targetSpeed = 0; car.driver = 'police';
+      state.cars.push(car);
+    }
     SpikeStrip.deploy(state, r.x - px * 40, r.y - py * 40, r.x + px * 40, r.y + py * 40);
     emit('wanted:change', { to: state.wanted, roadblock: true });
   },
 };
 const Pool = {
-  make(n, factory) { const items = []; for (let i = 0; i < n; i++) items.push(factory(i)); return { items, next: 0, take() { const it = this.items[this.next]; this.next = (this.next + 1) % this.items.length; return it; } }; },
+  make(n, factory) {
+    const items = [];
+    for (let i = 0; i < n; i++) items.push(factory(i));
+    return { items, next: 0, take() { const it = this.items[this.next]; this.next = (this.next + 1) % this.items.length; return it; } };
+  },
 };
 const Sky = {
   time: 18.5, rain: 0, wet: 0, _w: 'clear', _wt: 0, drops: null,
   update(dt, state) {
-    this.time += dt / 600; if (this.time >= 24) this.time -= 24;
+    this.time += dt / 600;
+    if (this.time >= 24) this.time -= 24;
     this._wt += dt;
     if (this._wt >= 1) {
       this._wt = 0;
@@ -238,7 +300,11 @@ const Sky = {
     state._hlTint = `rgba(${Math.round(50 - 30 * night)},${Math.round(36 - 20 * night)},${Math.round(50 + 30 * night)},${(0.03 + 0.09 * night + 0.08 * this.rain).toFixed(3)})`;
     if (!this.drops) this.drops = Pool.make(90, (i) => ({ x: 0, y: 0, v: 0, s: i * 37 }));
     if (this.rain > 0.05) {
-      for (const d of this.drops.items) { if (d.v === 0 || d.y > 360) { d.x = h2(d.s, Math.floor(state.time * 2)) * 640; d.y = -10; d.v = 380 + h2(d.s, 11) * 220; } d.y += d.v * dt; d.x -= d.v * 0.25 * dt; }
+      for (const d of this.drops.items) {
+        if (d.v === 0 || d.y > 360) { d.x = h2(d.s, Math.floor(state.time * 2)) * 640; d.y = -10; d.v = 380 + h2(d.s, 11) * 220; }
+        d.y += d.v * dt;
+        d.x -= d.v * 0.25 * dt;
+      }
       state._hlDrops = this.drops.items;
     } else state._hlDrops = null;
   },
@@ -249,8 +315,18 @@ const Sky = {
 const Input = {
   bind: { up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], confirm: ['Space', 'Enter'], pause: ['KeyP', 'Escape'], enter: ['KeyE'], shoot: ['KeyF'], mute: ['KeyM'], retry: ['KeyR'], shoulder: ['KeyQ'] },
   _padPrev: 0,
-  loadBind() { try { const raw = window.localStorage.getItem('neon-bay.bind.v1'); if (raw) { const o = JSON.parse(raw); for (const k in o) if (this.bind[k]) this.bind[k] = o[k]; } } catch {} },
-  remap(action, code) { if (!this.bind[action]) return false; this.bind[action] = [code]; try { window.localStorage.setItem('neon-bay.bind.v1', JSON.stringify(this.bind)); } catch {} return true; },
+  loadBind() {
+    try {
+      const raw = window.localStorage.getItem('neon-bay.bind.v1');
+      if (raw) { const o = JSON.parse(raw); for (const k in o) if (this.bind[k]) this.bind[k] = o[k]; }
+    } catch {}
+  },
+  remap(action, code) {
+    if (!this.bind[action]) return false;
+    this.bind[action] = [code];
+    try { window.localStorage.setItem('neon-bay.bind.v1', JSON.stringify(this.bind)); } catch {}
+    return true;
+  },
   poll() {
     const out = { move: { x: 0, y: 0 }, look: 0, actions: 0, aiming: false };
     try {
@@ -258,7 +334,8 @@ const Input = {
       const gp = pads && [...pads].find((p) => p && p.connected);
       if (!gp) return out;
       const dz = (v) => (Math.abs(v) < 0.18 ? 0 : v);
-      out.move.x = dz(gp.axes[0] || 0); out.move.y = dz(gp.axes[1] || 0);
+      out.move.x = dz(gp.axes[0] || 0);
+      out.move.y = dz(gp.axes[1] || 0);
       out.look = dz(gp.axes[2] || 0) * 6;
       out.aiming = !!(gp.buttons[7] && gp.buttons[7].value > 0.3);
       const b = (i) => !!(gp.buttons[i] && gp.buttons[i].pressed);
@@ -273,8 +350,16 @@ const Input = {
   attachTouch(canvas, input) {
     if (typeof window === 'undefined' || !('ontouchstart' in window)) return;
     const t = this.touch;
-    const pos = (e) => { const r = canvas.getBoundingClientRect(); return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) }; };
-    const btn = (p) => { if (d2(p.x, p.y, 1150, 480) < 56) return 'aim'; if (d2(p.x, p.y, 1150, 620) < 56) return 'shoot'; if (d2(p.x, p.y, 1010, 620) < 56) return 'enter'; return null; };
+    const pos = (e) => {
+      const r = canvas.getBoundingClientRect();
+      return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+    };
+    const btn = (p) => {
+      if (d2(p.x, p.y, 1150, 480) < 56) return 'aim';
+      if (d2(p.x, p.y, 1150, 620) < 56) return 'shoot';
+      if (d2(p.x, p.y, 1010, 620) < 56) return 'enter';
+      return null;
+    };
     canvas.addEventListener('touchstart', (e) => {
       t.on = true;
       for (const th of e.changedTouches) {
@@ -287,18 +372,33 @@ const Input = {
       }
       e.preventDefault();
     }, { passive: false });
-    canvas.addEventListener('touchmove', (e) => { for (const th of e.changedTouches) if (t.joy && th.identifier === t.joy.id) { const p = pos(th); t.joy.x = p.x; t.joy.y = p.y; } e.preventDefault(); }, { passive: false });
-    const end = (e) => { for (const th of e.changedTouches) if (t.joy && th.identifier === t.joy.id) t.joy = null; t.aim = false; };
+    canvas.addEventListener('touchmove', (e) => {
+      for (const th of e.changedTouches) if (t.joy && th.identifier === t.joy.id) { const p = pos(th); t.joy.x = p.x; t.joy.y = p.y; }
+      e.preventDefault();
+    }, { passive: false });
+    const end = (e) => {
+      for (const th of e.changedTouches) if (t.joy && th.identifier === t.joy.id) t.joy = null;
+      t.aim = false;
+    };
     canvas.addEventListener('touchend', end);
     canvas.addEventListener('touchcancel', end);
   },
-  touchMove() { const j = this.touch.joy; if (!j) return { x: 0, y: 0 }; return { x: clamp((j.x - j.ox) / 60, -1, 1), y: clamp((j.y - j.oy) / 60, -1, 1) }; },
+  touchMove() {
+    const j = this.touch.joy;
+    if (!j) return { x: 0, y: 0 };
+    return { x: clamp((j.x - j.ox) / 60, -1, 1), y: clamp((j.y - j.oy) / 60, -1, 1) };
+  },
   drawTouch(ctx) {
     const t = this.touch;
     if (!t.on) return;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = 'bold 16px sans-serif';
-    if (t.joy) { ctx.strokeStyle = 'rgba(244,246,250,0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(t.joy.ox, t.joy.oy, 60, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = 'rgba(34,211,238,0.6)'; ctx.beginPath(); ctx.arc(t.joy.x, t.joy.y, 26, 0, Math.PI * 2); ctx.fill(); }
+    if (t.joy) {
+      ctx.strokeStyle = 'rgba(244,246,250,0.5)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(t.joy.ox, t.joy.oy, 60, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(34,211,238,0.6)';
+      ctx.beginPath(); ctx.arc(t.joy.x, t.joy.y, 26, 0, Math.PI * 2); ctx.fill();
+    }
     for (const [x, y, label, active] of [[1150, 480, 'AIM', t.aim], [1150, 620, 'FIRE', false], [1010, 620, 'ENTER', false]]) {
       ctx.fillStyle = active ? 'rgba(255,210,63,0.7)' : 'rgba(244,246,250,0.25)';
       ctx.beginPath(); ctx.arc(x, y, 44, 0, Math.PI * 2); ctx.fill();

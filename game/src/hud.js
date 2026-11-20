@@ -1,5 +1,3 @@
-// NEON BAY — the dense HUD (cash + rank, wanted, mission + compass,
-// dispatch, weapons, radio, dialogue, minimap) as a 2D overlay.
 import { CITY, FONT, MISSIONS, PALETTE, VIEW } from './config.js';
 import { HL } from './patchkit.js';
 import { missionTarget } from './missions.js';
@@ -7,6 +5,7 @@ import { roadCentresX, roadCentresY } from './world.js';
 
 const MINIMAP = { size: 176, margin: 16 };
 const RANK_AT = [0, 2, 5, 8, 12];
+const RANK_NAMES = ['UNKNOWN', 'WHEELMAN', 'FIXER', 'GHOST', 'LEGEND'];
 const RADIO_SONGS = [
   'Midnight Drive — The Palms', 'Neon Skyline — Velvet Static',
   'Golden Hour — Marina Lights', 'Chrome Hearts — Bay City Kings',
@@ -44,14 +43,10 @@ function panel(ctx, x, y, w, h, alpha) {
   ctx.strokeRect(x, y, w, h);
 }
 
-/** The minimap: the whole city shrunk into a round dial, bottom-left. */
 export function drawMinimap(ctx, state) {
-  const size = MINIMAP.size;
-  const x0 = MINIMAP.margin;
-  const y0 = VIEW.height - size - MINIMAP.margin;
+  const size = MINIMAP.size, x0 = MINIMAP.margin, y0 = VIEW.height - size - MINIMAP.margin;
   const scale = size / Math.max(CITY.width, CITY.height);
-  const cx = x0 + size / 2;
-  const cy = y0 + size / 2;
+  const cx = x0 + size / 2, cy = y0 + size / 2;
   ctx.fillStyle = 'rgba(10, 12, 20, 0.85)';
   ctx.beginPath(); ctx.arc(cx, cy, size / 2 + 4, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = PALETTE.panelEdge; ctx.lineWidth = 2;
@@ -107,7 +102,6 @@ export function drawMinimap(ctx, state) {
   text(ctx, 'NEON BAY', x0, y0 - 8, 13, PALETTE.muted, 'left', true);
 }
 
-/** Police dispatch: the nearest units, their distance and their tactic. */
 function drawDispatch(ctx, state) {
   const p = state.player;
   const px = p.car ? p.car.x : p.x;
@@ -123,8 +117,7 @@ function drawDispatch(ctx, state) {
   if (state.wanted >= 3) units.splice(1, 0, { name: 'AIR ONE', d: 180, tactic: 'SPOTLIGHT' });
   const list = units.slice(0, 4);
   if (list.length === 0) return;
-  const x = VIEW.width - 268;
-  const y = 84;
+  const x = VIEW.width - 268, y = 84;
   panel(ctx, x, y, 244, 24 + list.length * 22);
   text(ctx, 'BAYVIEW DISPATCH', x + 10, y + 17, 12, PALETTE.neonCyan, 'left', true);
   list.forEach((u, i) => {
@@ -135,12 +128,10 @@ function drawDispatch(ctx, state) {
   });
 }
 
-/** Weapon slots: fists + pistol live, three more locked. */
 function drawWeapons(ctx, state, speedKmh) {
   const slots = ['FISTS', 'PISTOL', 'SMG', 'SHOTGUN', 'RIFLE'];
   const cur = HL.Weapons.drawn(state) ? 1 : 0;
-  const x0 = VIEW.width - 268;
-  const y0 = VIEW.height - 96;
+  const x0 = VIEW.width - 268, y0 = VIEW.height - 96;
   slots.forEach((s, i) => {
     const x = x0 + i * 50;
     const live = i <= 1;
@@ -156,12 +147,9 @@ function drawWeapons(ctx, state, speedKmh) {
   }
 }
 
-/** Compass strip: cardinal points around the camera heading + target marker. */
 function drawCompass(ctx, state) {
   const stage = state.mission ? missionTarget(state) : null;
-  const cx = VIEW.width / 2;
-  const cy = 96;
-  const half = 170;
+  const cx = VIEW.width / 2, cy = 96, half = 170;
   ctx.fillStyle = 'rgba(8,10,18,0.6)';
   ctx.fillRect(cx - half, cy - 13, half * 2, 26);
   const ang = state.camera.angle ?? -Math.PI / 2;
@@ -200,8 +188,7 @@ function drawDialogue(ctx, state, time) {
   const initials = giver === 'Mara Voss' ? 'MV' : 'R';
   const color = giver === 'Mara Voss' ? PALETTE.neonPink : '#e67e22';
   const line = DIALOGUE[state.mission.index] || '';
-  const x = 24;
-  const y = VIEW.height - 268;
+  const x = 24, y = VIEW.height - 268;
   panel(ctx, x, y, 420, 64);
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x + 32, y + 32, 22, 0, Math.PI * 2); ctx.fill();
@@ -211,8 +198,7 @@ function drawDialogue(ctx, state, time) {
   ctx.font = `15px ${FONT}`;
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
   const words = line.split(' ');
-  let row = '';
-  let yy = y + 44;
+  let row = '', yy = y + 44;
   for (const w of words) {
     if ((row + ' ' + w).length > 52) { ctx.fillText(row, x + 64, yy); row = w; yy += 17; }
     else row = row ? row + ' ' + w : w;
@@ -220,7 +206,6 @@ function drawDialogue(ctx, state, time) {
   if (row) ctx.fillText(row, x + 64, yy);
 }
 
-/** The full HUD over the 3D view. `speedKmh` is shown only while driving. */
 export function drawHud(ctx, state, speedKmh) {
   text(ctx, `$${state.money}`, 24, 44, 34, PALETTE.money, 'left', true);
   bar(ctx, 24, 56, 220, 14, state.health / 100, state.health > 30 ? '#7ee787' : '#ff5a5a');
@@ -232,7 +217,7 @@ export function drawHud(ctx, state, speedKmh) {
   const prog = nxt === undefined ? 1 : (score - cur) / (nxt - cur);
   text(ctx, `RANK: ${HL.Profile.name().toUpperCase()}`, 24, 114, 14, PALETTE.neonCyan, 'left', true);
   bar(ctx, 24, 122, 220, 8, prog, PALETTE.neonCyan);
-  text(ctx, nxt === undefined ? 'MAX RANK' : `${score}/${nxt} rep to ${['UNKNOWN', 'WHEELMAN', 'FIXER', 'GHOST', 'LEGEND'][tier + 1]}`, 24, 148, 12, PALETTE.muted, 'left');
+  text(ctx, nxt === undefined ? 'MAX RANK' : `${score}/${nxt} rep to ${RANK_NAMES[tier + 1]}`, 24, 148, 12, PALETTE.muted, 'left');
   text(ctx, `JOBS ${state.missionsDone}/${MISSIONS.length}`, 24, 168, 12, PALETTE.muted, 'left', true);
   const stars = '★'.repeat(state.wanted) + '☆'.repeat(5 - state.wanted);
   text(ctx, stars, VIEW.width - 24, 44, 30, state.wanted > 0 ? '#ff5a5a' : 'rgba(244,246,250,0.35)', 'right', true);
@@ -268,9 +253,7 @@ export function drawHud(ctx, state, speedKmh) {
     const p = state.player;
     const px = p.car ? p.car.x : p.x;
     const py = p.car ? p.car.y : p.y;
-    const dx = stage.x - px;
-    const dy = stage.y - py;
-    const dist = Math.hypot(dx, dy);
+    const dx = stage.x - px, dy = stage.y - py, dist = Math.hypot(dx, dy);
     if (dist > 420) {
       const ang = Math.atan2(dy, dx);
       const cx = Math.max(70, Math.min(VIEW.width - 70, VIEW.width / 2 + Math.cos(ang) * 180));
@@ -286,8 +269,6 @@ export function drawHud(ctx, state, speedKmh) {
   }
   if (state.banner && state.banner.timer > 0) {
     const alpha = Math.min(1, state.banner.timer);
-    const titleY = 278;
-    const subY = 314;
     const measure = (value, size) => (typeof ctx.measureText === 'function'
       ? ctx.measureText(value).width
       : value.length * size * 0.58);
@@ -303,8 +284,8 @@ export function drawHud(ctx, state, speedKmh) {
     ctx.fillStyle = 'rgba(8,10,18,0.78)';
     ctx.fillRect(VIEW.width / 2 - bw / 2, 232, bw, 102);
     ctx.globalAlpha = alpha;
-    text(ctx, state.banner.text, VIEW.width / 2, titleY, 44, PALETTE.text, 'center', true);
-    if (state.banner.sub) text(ctx, state.banner.sub, VIEW.width / 2, subY, 22, PALETTE.neonYellow, 'center');
+    text(ctx, state.banner.text, VIEW.width / 2, 278, 44, PALETTE.text, 'center', true);
+    if (state.banner.sub) text(ctx, state.banner.sub, VIEW.width / 2, 314, 22, PALETTE.neonYellow, 'center');
     ctx.globalAlpha = 1;
   }
   if (state.flash > 0) {
@@ -313,12 +294,10 @@ export function drawHud(ctx, state, speedKmh) {
   }
 }
 
-/** Centre crosshair for third-person aiming: a dot on foot, four arms when aiming. */
 export function drawCrosshair(ctx, state) {
   const p = state.player;
   if (!p.onFoot) return;
-  const cx = VIEW.width / 2;
-  const cy = VIEW.height / 2;
+  const cx = VIEW.width / 2, cy = VIEW.height / 2;
   const spread = 6 + (p.shootTimer > 0 ? 14 : 0) + (p.moving ? 5 : 0) - (p.assist ? 2 : 0);
   ctx.strokeStyle = 'rgba(0,0,0,0.7)';
   ctx.lineWidth = 3;

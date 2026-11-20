@@ -1,9 +1,4 @@
-// NEON BAY — the game itself: one fixed step of everything.
-// This is the single place the loop, the attract mode and the screenshot
-// autopilot all run through, so a screenshot stages the real rules, not a
-// posed frame. Order per step: player, cars, traffic, pedestrians, police,
-// wanted, missions, combat, particles, camera.
-import { AIM, CITY, PLAYER } from './config.js';
+import { AIM, BEST_KEY, CITY, PLAYER } from './config.js';
 import { HL } from './patchkit.js';
 import { createRandom } from './random.js';
 import { createCity, createState, hitsBuilding, resolveBuildingCollision } from './world.js';
@@ -16,8 +11,8 @@ import { addWanted, damagePlayer, maintainPolice, updatePoliceCar, updateWanted 
 import { startSideJob, tryStartNextMission, updateMission } from './missions.js';
 import { crashDamage, punch, shoot, updateBullets } from './combat.js';
 import { spawnExhaust, spawnParticles, updateParticles, updateShake } from './particles.js';
+import { updateShop } from './shop.js';
 
-/** A fresh game: city, state and the seeded random source. */
 export function createGame(seed) {
   const random = createRandom(seed);
   const city = createCity(random);
@@ -30,7 +25,6 @@ function playerWorldPos(state) {
   return p.car ? { x: p.car.x, y: p.car.y } : { x: p.x, y: p.y };
 }
 
-/** Shape raw mouse-look into a turn: dead zone, response curve, split sensitivity. */
 function shapeLook(dx, aiming) {
   const mag = Math.abs(dx);
   if (mag < AIM.deadZone) return 0;
@@ -38,14 +32,10 @@ function shapeLook(dx, aiming) {
   return Math.sign(dx) * Math.pow(m, AIM.curve) * (aiming ? AIM.aimSens : AIM.hipSens);
 }
 
-/** Light aim assist while aiming: the nearest shootable target (walker or car) inside a small cone around the crosshair ray pulls the facing */
 function aimAssist(state, p, dt) {
-  let best = null;
-  let bestDiff = AIM.assistCone;
+  let best = null, bestDiff = AIM.assistCone;
   const consider = (x, y) => {
-    const dx = x - p.x;
-    const dy = y - p.y;
-    const d = Math.hypot(dx, dy);
+    const dx = x - p.x, dy = y - p.y, d = Math.hypot(dx, dy);
     if (d > AIM.assistRange || d < 1) return;
     let diff = Math.atan2(dy, dx) - p.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
@@ -70,17 +60,13 @@ function updatePlayerOnFoot(state, dt, input, random) {
   const len = Math.hypot(move.x, move.y);
   p.moving = len > 0;
   if (len > 0) {
-    let wx;
-    let wy;
+    let wx, wy;
     if (input.moveWorld) {
       wx = move.x / len;
       wy = move.y / len;
       p.angle = Math.atan2(wy, wx);
     } else {
-      const f = -move.y;
-      const s = move.x;
-      const c = Math.cos(p.angle);
-      const sn = Math.sin(p.angle);
+      const f = -move.y, s = move.x, c = Math.cos(p.angle), sn = Math.sin(p.angle);
       wx = (c * f - sn * s) / len;
       wy = (sn * f + c * s) / len;
     }
@@ -105,9 +91,7 @@ function updatePlayerOnFoot(state, dt, input, random) {
 function updatePlayerDriving(state, dt, input, random, audio) {
   const car = state.player.car;
   if (!car) return;
-  const throttle = -input.move.y;
-  const steer = input.move.x;
-  driveCar(car, dt, throttle * (1 - 0.2 * (state._hlWet || 0)), steer, input.handbrake);
+  driveCar(car, dt, -input.move.y * (1 - 0.2 * (state._hlWet || 0)), input.move.x, input.handbrake);
   if (collideCarWithCity(state, car)) {
     if (Math.abs(car.speed) > 320) {
       damagePlayer(state, 8, random);
@@ -135,8 +119,7 @@ function updateCars(state, dt, random, audio) {
   const cars = state.cars;
   for (let i = 0; i < cars.length; i += 1) {
     for (let j = i + 1; j < cars.length; j += 1) {
-      const a = cars[i];
-      const b = cars[j];
+      const a = cars[i], b = cars[j];
       if (Math.hypot(a.x - b.x, a.y - b.y) > 50) continue;
       if (collideCars(a, b)) {
         const fast = Math.max(Math.abs(a.speed), Math.abs(b.speed));
@@ -195,10 +178,8 @@ function updateSideJob(state, dt) {
   }
 }
 
-/** Third-person camera: the eye sits behind the player (or their car), looking where they face. Heading, field of view and the shoulder */
 function updateCamera(state, dt) {
-  const p = state.player;
-  const cam = state.camera;
+  const p = state.player, cam = state.camera;
   const target = p.car ? { x: p.car.x, y: p.car.y } : { x: p.x, y: p.y };
   const targetAngle = p.car ? p.car.angle : p.angle;
   let diff = targetAngle - cam.angle;
@@ -210,8 +191,7 @@ function updateCamera(state, dt) {
   const wantShoulder = p.car ? 0 : (p.aiming ? -95 * (p.shoulder || 1) : 0);
   cam.shoulder += (wantShoulder - cam.shoulder) * Math.min(1, dt * 8);
   let dist = p.car ? 120 : (p.aiming ? 62 : 95);
-  const fx = Math.cos(cam.angle);
-  const fy = Math.sin(cam.angle);
+  const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
   while (dist > 30 && hitsBuilding(state.city, target.x - fx * dist, target.y - fy * dist, 14)) dist -= 12;
   cam.x = target.x - fx * dist;
   cam.y = target.y - fy * dist;
@@ -219,7 +199,6 @@ function updateCamera(state, dt) {
   cam.y = Math.max(40, Math.min(CITY.height - 40, cam.y));
 }
 
-/** One fixed step of the whole game. `input` is { move:{x,y}, run, handbrake, aim:{x,y}|null, actions } where actions is the bit flags from */
 export function stepGame(game, dt, input, audio, harmless) {
   const { state, random } = game;
   if (state.wasted || state.busted) return;
@@ -261,7 +240,10 @@ export function stepGame(game, dt, input, audio, harmless) {
     state._hlWitT = 0;
     for (const ped of state.peds) {
       const r = HL.Witness.react(ped, { x: state.player.x, y: state.player.y, drawn: true }, state.city);
-      if (r !== 'none') { ped.mode = 'flee'; ped.fleeX = state.player.x; ped.fleeY = state.player.y; ped.timer = 2.5; if (r === 'call_police') addWanted(state, 1, state.player.x, state.player.y, 'alarm'); }
+      if (r !== 'none') {
+        ped.mode = 'flee'; ped.fleeX = state.player.x; ped.fleeY = state.player.y; ped.timer = 2.5;
+        if (r === 'call_police') addWanted(state, 1, state.player.x, state.player.y, 'alarm');
+      }
     }
   }
   updateBullets(state, dt, random);
@@ -272,16 +254,18 @@ export function stepGame(game, dt, input, audio, harmless) {
     updateWanted(state, dt);
     const hadM = state.mission, doneB = state.missionsDone;
     updateMission(state, dt, random, (n, x, y) => addWanted(state, n, x, y));
-    if (hadM && !state.mission && state.missionsDone > doneB) { HL.Profile.record(state.wanted === 0 ? 'cleanMission' : 'mission'); HL.Save.autosave(null, () => HL.Save.collect(state), true); }
-    else if (hadM && !state.mission) { state._hlRetry = true; HL.Missions.fail(state, 'Out of time'); }
+    if (hadM && !state.mission && state.missionsDone > doneB) {
+      HL.Profile.record(state.wanted === 0 ? 'cleanMission' : 'mission');
+      HL.Save.autosave(null, () => HL.Save.collect(state), true);
+    } else if (hadM && !state.mission) {
+      state._hlRetry = true;
+      HL.Missions.fail(state, 'Out of time');
+    }
     HL.Missions.update(dt, state);
     updateSideJob(state, dt);
     if (state.storyDone && !state.mission && !state.sideJob) {
       state.sideJobDelay = (state.sideJobDelay ?? 8) - dt;
-      if (state.sideJobDelay <= 0) {
-        startSideJob(state, random);
-        state.sideJobDelay = 20;
-      }
+      if (state.sideJobDelay <= 0) { startSideJob(state, random); state.sideJobDelay = 20; }
     }
     if (!state.mission && !state.storyDone) {
       const pos = playerWorldPos(state);
@@ -292,9 +276,13 @@ export function stepGame(game, dt, input, audio, harmless) {
   }
   maintainTraffic(state, random);
   maintainPedestrians(state, random);
+  updateShop(state, dt);
   const ent = state.player.car || state.player;
   const safe = HL.Bounds.update(dt, state.city, ent, !!(input.move.x || input.move.y));
-  if (safe) { ent.x = safe.x; ent.y = safe.y; if (state.player.car) { state.player.car.speed = 0; state.player.x = safe.x; state.player.y = safe.y; } }
+  if (safe) {
+    ent.x = safe.x; ent.y = safe.y;
+    if (state.player.car) { state.player.car.speed = 0; state.player.x = safe.x; state.player.y = safe.y; }
+  }
   updateCamera(state, dt);
   if (state.banner) {
     state.banner.timer -= dt;
@@ -304,14 +292,15 @@ export function stepGame(game, dt, input, audio, harmless) {
   if (audio) {
     const speed = p.car ? Math.abs(p.car.speed) : 0;
     audio.setEngine(speed, 520);
-    const anyCopNear = state.cars.some((c) => c.kind === 'police' && Math.hypot(c.x - (p.car ? p.car.x : p.x), c.y - (p.car ? p.car.y : p.y)) < 600);
+    const px = p.car ? p.car.x : p.x, py = p.car ? p.car.y : p.y;
+    const anyCopNear = state.cars.some((c) => c.kind === 'police' && Math.hypot(c.x - px, c.y - py) < 600);
     audio.setSiren(anyCopNear, state.time);
     if (state.wanted >= 3 && state.time % 0.25 < dt) audio.rotor();
   }
 }
 
-/** Wake up at the hospital after WASTED, or the precinct after BUSTED. */
 export function recover(state, random) {
+  const wasWasted = state.wasted;
   const fee = Math.min(state.money, 100);
   state.money -= fee;
   state.health = 100;
@@ -320,9 +309,9 @@ export function recover(state, random) {
   state.wantedPoints = 0;
   state.unseenTimer = 0;
   state.cars = state.cars.filter((c) => c.kind === 'traffic');
-  if (state.player.car) { state.player.car = null; }
+  if (state.player.car) state.player.car = null;
   state.player.onFoot = true;
-  if (state.wasted) {
+  if (wasWasted) {
     state.player.x = CITY.hospital.x;
     state.player.y = CITY.hospital.y + 170;
   } else {
@@ -333,18 +322,16 @@ export function recover(state, random) {
   state.wasted = false;
   state.busted = false;
   state.endTimer = 0;
-  state.banner = { text: 'Back on the street', sub: state.wasted ? `Hospital fee: $${fee}` : `Bail: $${fee}`, timer: 3 };
+  state.banner = { text: 'Back on the street', sub: wasWasted ? `Hospital fee: $${fee}` : `Bail: $${fee}`, timer: 3 };
   state.camera.x = state.player.x;
   state.camera.y = state.player.y;
   state.camera.angle = -Math.PI / 2;
 }
 
-/** Save via the patch kit (versioned, checksummed, backed up). */
 export function saveGame(state) {
   return HL.Save.save(null, HL.Save.collect(state));
 }
 
-/** Load a save into a fresh state; returns true when a save existed. */
 export function loadGame(state) {
   const ok = HL.Save.apply(state, HL.Save.load(null));
   if (!ok) return false;
@@ -355,11 +342,10 @@ export function loadGame(state) {
   return true;
 }
 
-/** Best haul (most money ever held) for the title screen. */
 export function readBest() {
-  try { return Number.parseInt(window.localStorage.getItem('neon-bay.best.v1') ?? '0', 10) || 0; } catch { return 0; }
+  try { return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0; } catch { return 0; }
 }
 
 export function saveBest(value) {
-  try { window.localStorage.setItem('neon-bay.best.v1', String(value)); } catch { /* storage off */ }
+  try { window.localStorage.setItem(BEST_KEY, String(value)); } catch { /* storage off */ }
 }

@@ -1,9 +1,3 @@
-// NEON BAY — the wanted level and the Bayview police.
-// Crime adds wanted points; stars are the points, capped at five. Cops spawn
-// on roads outside the player's view and chase by a simple intersection
-// pathfind: at each crossing they take the road that most reduces the
-// Manhattan distance to the player. Lose them by staying unseen: the stars
-// tick down after WANTED.decaySeconds with no cop in sight.
 import { CAR, WANTED } from './config.js';
 import { HL } from './patchkit.js';
 import { collideCarWithCity, driveCar, spawnPoliceCar } from './vehicles.js';
@@ -13,7 +7,6 @@ export function wantedStars(state) {
   return Math.min(WANTED.maxStars, state.wanted);
 }
 
-/** A crime at (x, y): raise the wanted level and reset the decay clock. */
 export function addWanted(state, points, x, y, crime) {
   if (points <= 0) return;
   if (crime && crime !== 'alarm' && !HL.Wanted.seen(state, crime, x, y)) return; // unseen: no heat
@@ -25,12 +18,10 @@ export function addWanted(state, points, x, y, crime) {
   }
 }
 
-/** How many cops the current wanted level calls for. */
 export function copsWanted(state) {
   return Math.min(WANTED.maxCops, state.wanted * 2 + HL.Profile.copBonus());
 }
 
-/** Keep the right number of police cars on the road. */
 export function maintainPolice(state, random) {
   const want = copsWanted(state);
   const cops = state.cars.filter((c) => c.kind === 'police');
@@ -38,36 +29,28 @@ export function maintainPolice(state, random) {
   for (const cop of cops) {
     if (cop.roadblock) continue; // a roadblock holds its ground
     if (Math.hypot(cop.x - p.x, cop.y - p.y) > 1600) {
-      const spot = { x: p.x + (random() < 0.5 ? -1 : 1) * (600 + random() * 300), y: p.y + (random() - 0.5) * 600 };
-      cop.x = Math.max(60, Math.min(state.city.width - 60, spot.x));
-      cop.y = Math.max(60, Math.min(state.city.height - 60, spot.y));
+      cop.x = Math.max(60, Math.min(state.city.width - 60, p.x + (random() < 0.5 ? -1 : 1) * (600 + random() * 300)));
+      cop.y = Math.max(60, Math.min(state.city.height - 60, p.y + (random() - 0.5) * 600));
     }
   }
   for (let i = cops.length; i < want; i += 1) spawnPoliceCar(state, random, p.x, p.y);
-  if (want === 0) {
-    state.cars = state.cars.filter((c) => c.kind !== 'police');
-  }
+  if (want === 0) state.cars = state.cars.filter((c) => c.kind !== 'police');
 }
 
-/** Police chase: steer toward the player, choosing at each intersection the outgoing road that most reduces the Manhattan distance to the player */
 export function updatePoliceCar(state, cop, dt, random) {
   if (cop.roadblock) { cop.speed *= Math.max(0, 1 - 4 * dt); return; } // hold the line
   const p = state.player;
   const tx = p.car ? p.car.x : p.x;
   const ty = p.car ? p.car.y : p.y;
   const dist = Math.hypot(tx - cop.x, ty - cop.y);
-  const wantAngle = Math.atan2(ty - cop.y, tx - cop.x);
-  let diff = wantAngle - cop.angle;
+  let diff = Math.atan2(ty - cop.y, tx - cop.x) - cop.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
-  const steer = Math.max(-1, Math.min(1, diff * 2.4));
-  const throttle = dist > 60 ? 1 : 0.4;
-  driveCar(cop, dt, throttle, steer, false);
+  driveCar(cop, dt, dist > 60 ? 1 : 0.4, Math.max(-1, Math.min(1, diff * 2.4)), false);
   if (collideCarWithCity(state, cop)) cop.speed *= 0.5;
   if (atIntersection(cop.x, cop.y, 40)) {
     const node = nearestIntersection(cop.x, cop.y);
-    const dx = tx - node.x;
-    const dy = ty - node.y;
+    const dx = tx - node.x, dy = ty - node.y;
     const horizontal = Math.abs(dx) > Math.abs(dy);
     const targetAngle = horizontal ? (dx > 0 ? 0 : Math.PI) : (dy > 0 ? Math.PI / 2 : -Math.PI / 2);
     let d2 = targetAngle - cop.angle;
@@ -78,10 +61,7 @@ export function updatePoliceCar(state, cop, dt, random) {
   if (dist < 46 && p.onFoot) {
     if (Math.abs(cop.speed) < 60) {
       cop.bustTimer = (cop.bustTimer || 0) + dt;
-      if (cop.bustTimer > 1.2) {
-        state.busted = true;
-        state.endTimer = 0;
-      }
+      if (cop.bustTimer > 1.2) { state.busted = true; state.endTimer = 0; }
     } else cop.bustTimer = 0;
   } else cop.bustTimer = 0;
   if (dist < 50 && p.car && Math.abs(cop.speed) > 120) {
@@ -91,7 +71,6 @@ export function updatePoliceCar(state, cop, dt, random) {
   if (random() < dt * 0.5) cop.sirenPhase = (cop.sirenPhase || 0) + 1;
 }
 
-/** Damage the player (ram, bullet, crash): flash, shake, maybe WASTED. */
 export function damagePlayer(state, amount, random) {
   const p = state.player;
   if (p.hurtTimer > 0 || state.wasted || state.busted) return;
@@ -108,7 +87,6 @@ export function damagePlayer(state, amount, random) {
   }
 }
 
-/** Wanted decay: no cop close and unseen for a while, lose a star. */
 export function updateWanted(state, dt) {
   if (state.wanted === 0) return;
   const p = state.player;
@@ -126,9 +104,7 @@ export function updateWanted(state, dt) {
       state.unseenTimer = 0;
       state.wantedPoints = Math.max(0, state.wantedPoints - 1);
       state.wanted = state.wantedPoints;
-      if (state.wanted === 0) {
-        state.banner = { text: 'CLEAN', sub: 'You lost them — for now', timer: 2 };
-      }
+      if (state.wanted === 0) state.banner = { text: 'CLEAN', sub: 'You lost them — for now', timer: 2 };
     }
   }
 }

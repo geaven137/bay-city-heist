@@ -1,8 +1,5 @@
-// NEON BAY — vehicles: arcade car physics, traffic AI, stealing cars.
-// Traffic cars drive the road grid in right-hand lanes, pick a turn at each
-// intersection, and brake for the car ahead. The player's car uses the same
-// physics (gas, brake, steering that depends on speed, handbrake).
 import { CAR, CITY, PALETTE, WANTED } from './config.js';
+import { FLEET_COLOR, pickFleetKind } from './fleet.js';
 import {
   atIntersection, hitsBuilding, laneOffset, nearestCentre, nearestIntersection,
   randomRoadPoint, resolveBuildingCollision, roadCentresX, roadCentresY,
@@ -10,7 +7,6 @@ import {
 
 let nextCarId = 1;
 
-/** Sim speed (units/s) as km/h for the speedometer. */
 export function carSpeedKmh(car) { return Math.abs(car.speed) * 0.36; }
 
 export function makeCar(random, x, y, angle, kind, color) {
@@ -24,7 +20,6 @@ export function makeCar(random, x, y, angle, kind, color) {
   };
 }
 
-/** Spawn a traffic car on a road near (x, y). */
 export function spawnTrafficCar(state, random, x, y) {
   const p = randomRoadPoint(random, x, y, 300, 900);
   const vertical = Math.abs(p.x - nearestCentre(roadCentresX, p.x)) < 4;
@@ -34,13 +29,19 @@ export function spawnTrafficCar(state, random, x, y) {
   car.axis = axis;
   car.dir = dir;
   car.targetSpeed = CAR.trafficSpeed * (0.8 + random() * 0.4);
+  const fleet = pickFleetKind(random);
+  if (fleet) {
+    car.fleet = fleet;
+    car.color = FLEET_COLOR[fleet];
+    if (fleet.startsWith('moto')) car.targetSpeed = 200;
+    else if (fleet === 'arff' || fleet === 'ladder') car.targetSpeed = CAR.trafficSpeed * 0.7;
+  }
   if (axis === 'x') car.y += laneOffset('x', dir);
   else car.x += laneOffset('y', dir);
   state.cars.push(car);
   return car;
 }
 
-/** Spawn a police car on a road outside the player's view. */
 export function spawnPoliceCar(state, random, x, y) {
   const p = randomRoadPoint(random, x, y, 500, 1000);
   const car = makeCar(random, p.x, p.y, 0, 'police', PALETTE.police);
@@ -50,7 +51,6 @@ export function spawnPoliceCar(state, random, x, y) {
   return car;
 }
 
-/** Arcade driving: throttle -1..1, steer -1..1, handbrake true/false. */
 export function driveCar(car, dt, throttle, steer, handbrake) {
   const accel = throttle > 0 ? CAR.accel : CAR.reverseAccel;
   car.speed += throttle * accel * dt;
@@ -65,7 +65,6 @@ export function driveCar(car, dt, throttle, steer, handbrake) {
   car.y += Math.sin(car.angle) * car.speed * dt;
 }
 
-/** Two circles (front and back) against buildings; returns true on a hit. */
 export function collideCarWithCity(state, car) {
   let hit = false;
   for (const s of [-16, 16]) {
@@ -83,16 +82,10 @@ export function collideCarWithCity(state, car) {
   return hit;
 }
 
-/** Circle-vs-circle bump between two cars; pushes both apart, swaps speed. */
 export function collideCars(a, b) {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const d = Math.hypot(dx, dy);
-  const min = 44;
+  const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), min = 44;
   if (d === 0 || d >= min) return false;
-  const push = (min - d) / 2;
-  const nx = dx / d;
-  const ny = dy / d;
+  const push = (min - d) / 2, nx = dx / d, ny = dy / d;
   a.x -= nx * push; a.y -= ny * push;
   b.x += nx * push; b.y += ny * push;
   const swap = a.speed;
@@ -111,22 +104,16 @@ function carAhead(state, car, distance) {
   return null;
 }
 
-/**
- * Traffic AI: keep to the lane, slow for the car ahead, and at each
- * intersection pick a new direction (never reverse). Called per car per step.
- */
 export function updateTrafficCar(state, car, dt, random) {
   if (car.brakeTimer > 0) car.brakeTimer -= dt;
   const ahead = carAhead(state, car, 70);
   const want = ahead ? 0 : car.targetSpeed;
   const throttle = car.speed < want ? 1 : (car.speed > want + 10 ? -0.6 : 0);
   const steerTo = car.axis === 'x' ? (car.dir > 0 ? 0 : Math.PI) : (car.dir > 0 ? Math.PI / 2 : -Math.PI / 2);
-  let steer = 0;
   let diff = steerTo - car.angle;
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
-  steer = Math.max(-1, Math.min(1, diff * 2.2));
-  driveCar(car, dt, throttle, steer, false);
+  driveCar(car, dt, throttle, Math.max(-1, Math.min(1, diff * 2.2)), false);
   if (car.axis === 'x') {
     const laneY = nearestCentre(roadCentresY, car.y) + laneOffset('x', car.dir);
     car.y += (laneY - car.y) * Math.min(1, dt * 1.5);
@@ -139,16 +126,9 @@ export function updateTrafficCar(state, car, dt, random) {
     const key = `${node.x},${node.y}`;
     if (car.lastNode !== key) {
       car.lastNode = key;
-      const options = [];
-      if (car.axis === 'x') {
-        options.push({ axis: 'x', dir: car.dir });
-        options.push({ axis: 'y', dir: 1 });
-        options.push({ axis: 'y', dir: -1 });
-      } else {
-        options.push({ axis: 'y', dir: car.dir });
-        options.push({ axis: 'x', dir: 1 });
-        options.push({ axis: 'x', dir: -1 });
-      }
+      const options = car.axis === 'x'
+        ? [{ axis: 'x', dir: car.dir }, { axis: 'y', dir: 1 }, { axis: 'y', dir: -1 }]
+        : [{ axis: 'y', dir: car.dir }, { axis: 'x', dir: 1 }, { axis: 'x', dir: -1 }];
       const pick = options[Math.floor(random() * options.length)];
       car.axis = pick.axis;
       car.dir = pick.dir;
@@ -160,10 +140,8 @@ export function updateTrafficCar(state, car, dt, random) {
   }
 }
 
-/** The nearest drivable car to (x, y) within `radius`, or null. */
 export function nearestCar(state, x, y, radius) {
-  let best = null;
-  let bestD = radius;
+  let best = null, bestD = radius;
   for (const car of state.cars) {
     const d = Math.hypot(car.x - x, car.y - y);
     if (d < bestD) { bestD = d; best = car; }
@@ -171,10 +149,6 @@ export function nearestCar(state, x, y, radius) {
   return best;
 }
 
-/**
- * Steal a car: the driver is thrown out as a pedestrian, the player gets in,
- * and the crime raises the wanted level. Returns the car or null.
- */
 export function stealCar(state, car, addWanted) {
   if (!car) return null;
   const occupied = car.driver === 'ai';
@@ -194,7 +168,6 @@ export function stealCar(state, car, addWanted) {
   return car;
 }
 
-/** Get out of the car: the player steps out beside the driver's door. */
 export function exitCar(state) {
   const car = state.player.car;
   if (!car) return;
@@ -208,7 +181,6 @@ export function exitCar(state) {
   state.player.angle = car.angle;
 }
 
-/** Keep the traffic population full near the player; cull far-away cars. */
 export function maintainTraffic(state, random, target = 14) {
   const p = state.player;
   state.cars = state.cars.filter((car) => {

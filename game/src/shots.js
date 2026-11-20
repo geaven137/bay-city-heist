@@ -1,5 +1,3 @@
-// NEON BAY — screenshot scenes for ?shot=start|play|chase|end. Each plays
-// the real rules forward (autopilot: steal a car, drive, ram police).
 import { CITY, STEP } from './config.js';
 import { atIntersection, hitsBuilding, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 import { stepGame } from './game.js';
@@ -19,20 +17,15 @@ function idleInput() {
 
 function walkToward(game, tx, ty) {
   const p = game.state.player;
-  const dx = tx - p.x;
-  const dy = ty - p.y;
-  const d = Math.hypot(dx, dy);
+  const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
   if (d < 24) return idleInput();
   return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0, moveWorld: true };
 }
 
-/** Drive the car toward (tx, ty) on the road grid. */
 function driveToward(game, tx, ty) {
   const car = game.state.player.car;
   if (!car) return idleInput();
-  const dx = tx - car.x;
-  const dy = ty - car.y;
-  const dist = Math.hypot(dx, dy);
+  const dx = tx - car.x, dy = ty - car.y, dist = Math.hypot(dx, dy);
   if (dist < 70) return idleInput();
   if (car.autoAxis === undefined) {
     const onH = Math.abs(car.y - nearestCentre(roadCentresY, car.y)) <= 26;
@@ -70,7 +63,6 @@ function runSteps(game, seconds, inputFn, harmless) {
   }
 }
 
-/** Walk to the nearest car and steal it (up to `limit` seconds). */
 function stealNearestCar(game, limit) {
   const steps = Math.floor(limit / STEP);
   for (let i = 0; i < steps; i += 1) {
@@ -81,9 +73,8 @@ function stealNearestCar(game, limit) {
     if (car && Math.hypot(car.x - p.x, car.y - p.y) < 70) {
       input = idleInput();
       input.actions = 4; // ACTION_ENTER_CAR
-    } else if (car) {
-      input = walkToward(game, car.x, car.y);
-    } else input = idleInput();
+    } else if (car) input = walkToward(game, car.x, car.y);
+    else input = idleInput();
     stepGame(game, STEP, input, null, false);
     if (game.state.wasted || game.state.busted) return false;
   }
@@ -96,15 +87,12 @@ function stealNearestCar(game, limit) {
   return !!game.state.player.car;
 }
 
-/** Spread police tailgating the player car into separate lanes. */
 const SPREAD_LATS = [150, -150, 220, -220];
-/** Chase: keep police behind the player so they don't pin it to 0 km/h. */
 function trailPolice(game) {
   const p = game.state.player;
   const car = p.car;
   if (!car) return;
-  const fx = Math.cos(car.angle);
-  const fy = Math.sin(car.angle);
+  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
   let i = 0;
   for (const c of game.state.cars) {
     if (c.kind !== 'police') continue;
@@ -127,10 +115,8 @@ function spreadPolice(game) {
   const pcar = state.player.car;
   if (!pcar) return;
   const cam = state.camera;
-  const fx = Math.cos(cam.angle);
-  const fy = Math.sin(cam.angle);
-  const px = -fy;
-  const py = fx;
+  const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
+  const px = -fy, py = fx;
   const pDepth = (pcar.x - cam.x) * fx + (pcar.y - cam.y) * fy;
   const pLat = (pcar.x - cam.x) * px + (pcar.y - cam.y) * py;
   let next = 0;
@@ -155,16 +141,13 @@ function spreadPolice(game) {
   }
 }
 
-/** Drive the beach road out and back at full throttle. */
 const BEACH_Y = 2080;
 function driveBeach(game, dir) {
   const car = game.state.player.car;
   if (!car) return idleInput();
-  const target = { x: dir > 0 ? 3000 : 200, y: BEACH_Y };
-  return driveToward(game, target.x, target.y);
+  return driveToward(game, dir > 0 ? 3000 : 200, BEACH_Y);
 }
 
-/** Staging only: clear the camera view. */
 function clearShot(g) {
   const s = g.state, c = s.camera, fx = Math.cos(c.angle), fy = Math.sin(c.angle);
   for (const p of s.peds) {
@@ -188,14 +171,12 @@ function clearShot(g) {
   }
 }
 
-/** Set `game` to the named scene and return the screen + best money. */
 export function stageShot(name, game) {
   const { state, random } = game;
   if (name === 'play' || name === 'chase') {
     stealNearestCar(game, 14);
     if (name === 'play') {
-      let fast = 0;
-      let dir = 1;
+      let fast = 0, dir = 1;
       const steps = Math.floor(PLAY_SECONDS / STEP);
       for (let i = 0; i < steps; i += 1) {
         const car = game.state.player.car;
@@ -212,9 +193,7 @@ export function stageShot(name, game) {
     }
     startMission(state, random, 3);
     addWanted(state, 1, state.player.x, state.player.y);
-    let fast = 0;
-    let dir = 1;
-    let elapsed = 0;
+    let fast = 0, dir = 1, elapsed = 0;
     const steps = Math.floor(CHASE_SECONDS / STEP);
     for (let i = 0; i < steps; i += 1) {
       const car = game.state.player.car;
@@ -238,8 +217,7 @@ export function stageShot(name, game) {
     runSteps(game, 40, () => {
       const p = game.state.player;
       if (!p.car) return idleInput();
-      let cop = null;
-      let best = Infinity;
+      let cop = null, best = Infinity;
       for (const c of state.cars) {
         if (c.kind !== 'police') continue;
         const d = Math.hypot(c.x - p.car.x, c.y - p.car.y);
@@ -261,15 +239,11 @@ export function stageShot(name, game) {
       }
       if (state.busted) {
         const cam = state.camera;
-        const fx = Math.cos(cam.angle);
-        const fy = Math.sin(cam.angle);
-        const px = -fy;
-        const py = fx;
+        const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
+        const px = -fy, py = fx;
         const depthOf = (cx, cy) => (cop.x - cx) * fx + (cop.y - cy) * fy;
         const clearToCop = (cx, cy) => {
-          const dx = cop.x - cx;
-          const dy = cop.y - cy;
-          const d = Math.hypot(dx, dy);
+          const dx = cop.x - cx, dy = cop.y - cy, d = Math.hypot(dx, dy);
           const steps = Math.ceil(d / 8);
           for (let i = 1; i < steps; i += 1) {
             if (hitsBuilding(state.city, cx + (dx * i) / steps, cy + (dy * i) / steps, 10)) return false;

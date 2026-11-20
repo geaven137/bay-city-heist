@@ -1,10 +1,3 @@
-// NEON BAY — boot and the one loop.
-// Input is read every frame, the world advances in fixed 1/60 s steps
-// (several in a slow frame, none in a fast one), and the renderer paints
-// what is there. Screens: title, play, paused, WASTED, BUSTED.
-// ?seed=N fixes the city. ?shot=start|play|chase|end (with &seed=N) stages
-// that scene instead of running the loop, paints it twice and sets
-// window.__shotReady for a screenshot.
 import { STEP } from './config.js';
 import { createGame, loadGame, readBest, recover, saveBest, saveGame, stepGame } from './game.js';
 import { ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, ACTION_RETRY, createInput } from './input.js';
@@ -13,6 +6,7 @@ import { HL } from './patchkit.js';
 import { startMission } from './missions.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
+import { handleShopKey } from './shop.js';
 
 const params = new URLSearchParams(window.location.search);
 const shot = params.get('shot');
@@ -62,8 +56,7 @@ function runGame() {
 
   function startGame(fresh) {
     if (fresh) {
-      const seedNow = Math.floor(Math.random() * 4294967296);
-      const next = createGame(seedNow);
+      const next = createGame(Math.floor(Math.random() * 4294967296));
       game.state = next.state;
       game.random = next.random;
     } else if (hasSave) {
@@ -115,7 +108,9 @@ function runGame() {
         announce('Paused.');
         accumulator = 0;
       } else {
-        if ((pressed & ACTION_RETRY) && game.state._hlRetry && HL.Missions.retry(game.state, game.random, startMission)) announce('Retrying the job from the checkpoint.');
+        if ((pressed & ACTION_RETRY) && game.state._hlRetry && HL.Missions.retry(game.state, game.random, startMission)) {
+          announce('Retrying the job from the checkpoint.');
+        }
         const base = buildInput(pad);
         let look = base.look;
         while (accumulator >= STEP) {
@@ -153,6 +148,7 @@ function runGame() {
     if (event.code === 'KeyS' && screen === SCREEN_PAUSED) {
       if (saveGame(game.state)) announce('Saved.');
     }
+    handleShopKey(game.state, event.code);
   });
 
   document.addEventListener('visibilitychange', () => {

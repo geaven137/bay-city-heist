@@ -1,14 +1,8 @@
-// NEON BAY — combat on foot: punch, pistol, bullets.
-// The player punches with Space (a short arc in front of them) and shoots
-// with a mouse click (or F, straight ahead). Bullets fly straight, hit
-// walkers and cars, and every shot is a crime the police notice. Cars that
-// take enough damage smoke, then burn out.
 import { PLAYER } from './config.js';
 import { addWanted } from './police.js';
 import { knockDownPed, scarePedestrians } from './pedestrians.js';
 import { spawnParticles } from './particles.js';
 
-/** Punch: hit walkers in a short arc ahead of the player. */
 export function punch(state, random) {
   const p = state.player;
   if (!p.onFoot || p.punchTimer > 0) return;
@@ -25,7 +19,6 @@ export function punch(state, random) {
   scarePedestrians(state, p.x, p.y, 180);
 }
 
-/** Shoot toward (tx, ty) in world space. Needs ammo; makes noise. */
 export function shoot(state, tx, ty, random) {
   const p = state.player;
   if (!p.onFoot || p.shootTimer > 0 || state.ammo <= 0) return;
@@ -43,7 +36,6 @@ export function shoot(state, tx, ty, random) {
   addWanted(state, 1, p.x, p.y, 'shoot');
 }
 
-/** Fly the bullets; hit walkers and cars; spark on buildings. */
 export function updateBullets(state, dt, random) {
   for (const b of state.bullets) {
     b.x += b.vx * dt;
@@ -77,7 +69,6 @@ export function updateBullets(state, dt, random) {
   state.bullets = state.bullets.filter((b) => !b.dead);
 }
 
-/** Damage a car: smoke at half health, burn out at zero (a crime scene). */
 export function damageCar(state, car, amount, random) {
   car.health -= amount;
   if (car.health <= 0 && !car.wrecked) {
@@ -93,7 +84,6 @@ export function damageCar(state, car, amount, random) {
   }
 }
 
-/** A car crash at speed hurts the player and the other car. */
 export function crashDamage(state, car, other, random) {
   if (other.kind === 'player') {
     const p = state.player;

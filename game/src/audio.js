@@ -1,17 +1,7 @@
-// NEON BAY — all sound is synthesized with WebAudio: no audio files.
-// A low engine hum that follows the car's speed, a two-tone police siren,
-// a noise-burst gunshot, pickup chimes, a mission jingle, and a slow
-// synthwave bass loop. Created on the first user gesture; M mutes.
 export function createAudio() {
-  let ctx = null;
-  let master = null;
-  let engineOsc = null;
-  let engineGain = null;
-  let sirenOsc = null;
-  let sirenGain = null;
-  let musicTimer = null;
-  let muted = false;
-  let musicStep = 0;
+  let ctx = null, master = null;
+  let engineOsc = null, engineGain = null, sirenOsc = null, sirenGain = null;
+  let musicTimer = null, muted = false, musicStep = 0;
 
   const BASS = [55, 55, 65.41, 55, 49, 55, 82.41, 73.42];
 
@@ -29,11 +19,11 @@ export function createAudio() {
       engineOsc.frequency.value = 50;
       engineGain = ctx.createGain();
       engineGain.gain.value = 0;
-      const engineFilter = ctx.createBiquadFilter();
-      engineFilter.type = 'lowpass';
-      engineFilter.frequency.value = 400;
-      engineOsc.connect(engineFilter);
-      engineFilter.connect(engineGain);
+      const filt = ctx.createBiquadFilter();
+      filt.type = 'lowpass';
+      filt.frequency.value = 400;
+      engineOsc.connect(filt);
+      filt.connect(engineGain);
       engineGain.connect(master);
       engineOsc.start();
       sirenOsc = ctx.createOscillator();
@@ -46,11 +36,10 @@ export function createAudio() {
       sirenOsc.start();
       musicTimer = window.setInterval(() => {
         if (muted || !ctx) return;
-        const freq = BASS[musicStep % BASS.length];
-        musicStep += 1;
         const osc = ctx.createOscillator();
         osc.type = 'square';
-        osc.frequency.value = freq;
+        osc.frequency.value = BASS[musicStep % BASS.length];
+        musicStep += 1;
         const g = ctx.createGain();
         g.gain.setValueAtTime(0.05, ctx.currentTime);
         g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.42);
@@ -81,10 +70,10 @@ export function createAudio() {
 
   function noiseBurst(duration, volume) {
     if (!ctx || muted) return;
-    const length = Math.floor(ctx.sampleRate * duration);
-    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const len = Math.floor(ctx.sampleRate * duration);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
     const data = buffer.getChannelData(0);
-    for (let i = 0; i < length; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / length);
+    for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const g = ctx.createGain();
@@ -95,24 +84,19 @@ export function createAudio() {
   }
 
   return {
-    /** Call from any user gesture: unlocks audio in the browser. */
-    unlock() {
-      if (ensure() && ctx.state === 'suspended') ctx.resume();
-    },
+    unlock() { if (ensure() && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() {
       muted = !muted;
       if (master) master.gain.value = muted ? 0 : 0.5;
       return muted;
     },
     get muted() { return muted; },
-    /** Engine hum follows speed (0 when on foot). */
     setEngine(speed, maxSpeed) {
       if (!ctx || muted) return;
       const ratio = Math.abs(speed) / maxSpeed;
       engineGain.gain.setTargetAtTime(ratio * 0.09, ctx.currentTime, 0.1);
       engineOsc.frequency.setTargetAtTime(50 + ratio * 140, ctx.currentTime, 0.1);
     },
-    /** Two-tone siren; `on` when any cop is near, alternating pitch. */
     setSiren(on, time) {
       if (!ctx || muted) return;
       sirenGain.gain.setTargetAtTime(on ? 0.045 : 0, ctx.currentTime, 0.1);
@@ -123,9 +107,7 @@ export function createAudio() {
     punch() { noiseBurst(0.06, 0.25); },
     crash() { noiseBurst(0.25, 0.6); blip(70, 0.2, 'sine', 0.4); },
     pickup() { blip(880, 0.12, 'sine', 0.25); window.setTimeout(() => blip(1318, 0.18, 'sine', 0.25), 90); },
-    missionDone() {
-      [523, 659, 784, 1046].forEach((f, i) => window.setTimeout(() => blip(f, 0.22, 'triangle', 0.25), i * 110));
-    },
+    missionDone() { [523, 659, 784, 1046].forEach((f, i) => window.setTimeout(() => blip(f, 0.22, 'triangle', 0.25), i * 110)); },
     fail() { blip(220, 0.4, 'sawtooth', 0.2); },
     wasted() { [392, 311, 233].forEach((f, i) => window.setTimeout(() => blip(f, 0.35, 'sawtooth', 0.2), i * 180)); },
   };

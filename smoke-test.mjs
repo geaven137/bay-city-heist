@@ -1,6 +1,7 @@
 // NEON BAY smoke test — no browser. A fake canvas/DOM lets the real game
 // modules run under Node: city gen, 60s of play (walk, steal, drive,
-// police, mission), all four screenshot stagings, and a render pass.
+// police, mission), all four screenshot stagings, a render pass, and the
+// round-4 additions (fleet traffic, Rico's Garage shop).
 // Run: node smoke-test.mjs   (exit 0 = pass; prints a failure and exit 1)
 import { createGame, stepGame } from './game/src/game.js';
 import { stageShot } from './game/src/shots.js';
@@ -53,7 +54,7 @@ const game = createGame(1);
 const { state } = game;
 check('city has buildings', state.city.buildings.length > 50, `${state.city.buildings.length} buildings`);
 check('city has parks', state.city.parks.length > 0, `${state.city.parks.length} parks`);
-check('player starts on foot at safehouse', state.player.onFoot && Math.abs(state.player.x - 1600) < 200, `(${state.player.x|0},${state.player.y|0})`);
+check('player starts on foot at safehouse', state.player.onFoot && Math.abs(state.player.x - 1600) < 200, `(${state.player.x | 0},${state.player.y | 0})`);
 
 // ---- 2. Render once (catches draw errors) ----
 const renderer = createRenderer(fakeCanvas);
@@ -104,6 +105,7 @@ check('pedestrians populated', state.peds.length >= 10, `${state.peds.length} pe
 check('wanted rose from stealing', wantedSeen, `wanted=${state.wanted}`);
 check('no NaN in player pos', Number.isFinite(state.player.x) && Number.isFinite(state.player.y));
 check('camera inside city', state.camera.x >= 0 && state.camera.x <= 3200 && state.camera.y >= 0 && state.camera.y <= 2400);
+check('fleet traffic spawns', state.cars.some((c) => c.fleet), `fleet=${state.cars.filter((c) => c.fleet).length}`);
 
 // ---- 4. Mission flow: start job 0, teleport through its stages ----
 const g2 = createGame(7);
@@ -126,7 +128,7 @@ import('./game/src/missions.js').then(({ startMission, currentStage }) => {
   finish();
 });
 
-// ---- 5. All four shots stage + render ----
+// ---- 5. Shop + fleet modules, then all four shots ----
 async function finish() {
   // Every remaining module must at least parse and load: input, audio, main.
   try {
@@ -139,6 +141,24 @@ async function finish() {
     check('main.js loads (boot, no shot)', true);
   } catch (e) {
     check('remaining modules load', false, String(e && e.stack || e));
+  }
+  // Rico's Garage shop: walk up on foot, buy ammo, money drops.
+  try {
+    const shopMod = await import('./game/src/shop.js');
+    const g3 = createGame(3);
+    const s3 = g3.state;
+    s3.money = 500;
+    s3.player.x = 2560; s3.player.y = 320;
+    const { updateShop, buyShop, shopOpen } = shopMod;
+    updateShop(s3, 0.1);
+    check('shop opens at the garage', shopOpen(s3) === true);
+    const ammoBefore = s3.ammo;
+    const bought = buyShop(s3, 0);
+    check('shop sells ammo', bought && s3.ammo === ammoBefore + 24 && s3.money === 450, `ammo=${s3.ammo} money=${s3.money}`);
+    const fleetMod = await import('./game/src/fleet.js');
+    check('fleet.js loads', Array.isArray(fleetMod.FLEET_KINDS) && fleetMod.FLEET_KINDS.length === 8);
+  } catch (e) {
+    check('shop + fleet modules', false, String(e && e.stack || e));
   }
   for (const name of ['start', 'play', 'chase', 'end']) {
     try {

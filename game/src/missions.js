@@ -1,15 +1,9 @@
-// NEON BAY — missions and story.
-// A generic stage machine: each mission is a list of stages (go to a place,
-// pick someone/something up, deliver it, lose the cops, wait it out). The
-// story is five jobs for Mara Voss, a fixer who runs Neon Bay from a booth
-// at the marina. After the story, repeatable taxi fares keep paying.
-// All names, people and places are original.
 import { CITY, MISSIONS } from './config.js';
 import { HL } from './patchkit.js';
 import { makeCar } from './vehicles.js';
 import { randomRoadPoint, randomSidewalkPoint } from './world.js';
 
-HL.Economy.gate[7] = 1500;
+HL.Economy.gate[7] = 1500; // the final job needs a $1500 bankroll
 
 export const STAGE_GOTO = 'goto';
 export const STAGE_PICKUP = 'pickup';
@@ -17,18 +11,13 @@ export const STAGE_DELIVER = 'deliver';
 export const STAGE_ESCAPE = 'escape';
 export const STAGE_WAIT = 'wait';
 
-/** The mission definitions: stages with targets, timers and pay. */
 export function missionStages(random, index) {
-  const H = CITY.hotel;
-  const G = CITY.garage;
-  const B = CITY.bank;
-  const S = CITY.safehouse;
+  const H = CITY.hotel, G = CITY.garage, B = CITY.bank, S = CITY.safehouse;
   switch (index) {
-    case 0:
-      return [
-        { type: STAGE_PICKUP, x: H.x, y: H.y + 160, label: 'Pick up the singer at Hotel Palmera', radius: 46 },
-        { type: STAGE_DELIVER, x: 480, y: 1760, label: 'Drop her at the marina stage', radius: 46 },
-      ];
+    case 0: return [
+      { type: STAGE_PICKUP, x: H.x, y: H.y + 160, label: 'Pick up the singer at Hotel Palmera', radius: 46 },
+      { type: STAGE_DELIVER, x: 480, y: 1760, label: 'Drop her at the marina stage', radius: 46 },
+    ];
     case 1: {
       const carSpot = randomRoadPoint(random, CITY.garage.x, CITY.garage.y, 200, 500);
       return [
@@ -36,54 +25,45 @@ export function missionStages(random, index) {
         { type: STAGE_DELIVER, x: G.x, y: G.y + 150, label: 'Bring the Comet to Rico’s Garage', radius: 56, needsCar: true },
       ];
     }
-    case 2:
-      return [
-        { type: STAGE_PICKUP, x: S.x, y: S.y + 120, label: 'Collect the package at the safehouse', radius: 46 },
-        { type: STAGE_DELIVER, x: 2880, y: 480, label: 'Deliver it to the north docks — fast', radius: 46 },
-      ];
-    case 3:
-      return [
-        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Make some noise at Bay Trust Bank', radius: 60, makeNoise: true },
-        { type: STAGE_ESCAPE, x: 0, y: 0, label: 'Lose the cops — get to zero stars', radius: 0 },
-      ];
-    case 4:
-      return [
-        { type: STAGE_PICKUP, x: 480, y: 480, label: 'Pick up the crew at the precinct corner', radius: 46 },
-        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
-        { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
-        { type: STAGE_DELIVER, x: S.x, y: S.y + 120, label: 'Get the crew home to the safehouse', radius: 56, needsCar: true },
-      ];
-    case 5:
-      return [
-        { type: STAGE_PICKUP, x: 480, y: 1760, label: 'Collect the crate at the marina stage', radius: 46 },
-        { type: STAGE_DELIVER, x: 2560, y: 2080, label: 'Deliver it to the beach bar before dawn', radius: 46 },
-      ];
-    case 6:
-      return [
-        { type: STAGE_PICKUP, x: 480, y: 480, label: 'Pick up Rico’s cousin at the precinct corner', radius: 46 },
-        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive him to Bay Trust Bank', radius: 56, needsCar: true },
-        { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while he settles it — 15s', radius: 80, wait: 15 },
-        { type: STAGE_DELIVER, x: G.x, y: G.y + 150, label: 'Drop him at Rico’s Garage', radius: 56, needsCar: true },
-      ];
-    case 7:
-      return [
-        { type: STAGE_PICKUP, x: S.x, y: S.y + 120, label: 'Pick up the crew at the safehouse', radius: 46 },
-        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
-        { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
-        { type: STAGE_DELIVER, x: H.x, y: H.y + 160, label: 'Get the crew to Hotel Palmera', radius: 56, needsCar: true },
-        { type: STAGE_ESCAPE, x: 0, y: 0, label: 'Lose the cops — get to zero stars', radius: 0 },
-      ];
-    default:
-      return [];
+    case 2: return [
+      { type: STAGE_PICKUP, x: S.x, y: S.y + 120, label: 'Collect the package at the safehouse', radius: 46 },
+      { type: STAGE_DELIVER, x: 2880, y: 480, label: 'Deliver it to the north docks — fast', radius: 46 },
+    ];
+    case 3: return [
+      { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Make some noise at Bay Trust Bank', radius: 60, makeNoise: true },
+      { type: STAGE_ESCAPE, x: 0, y: 0, label: 'Lose the cops — get to zero stars', radius: 0 },
+    ];
+    case 4: return [
+      { type: STAGE_PICKUP, x: 480, y: 480, label: 'Pick up the crew at the precinct corner', radius: 46 },
+      { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
+      { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
+      { type: STAGE_DELIVER, x: S.x, y: S.y + 120, label: 'Get the crew home to the safehouse', radius: 56, needsCar: true },
+    ];
+    case 5: return [
+      { type: STAGE_PICKUP, x: 480, y: 1760, label: 'Collect the crate at the marina stage', radius: 46 },
+      { type: STAGE_DELIVER, x: 2560, y: 2080, label: 'Deliver it to the beach bar before dawn', radius: 46 },
+    ];
+    case 6: return [
+      { type: STAGE_PICKUP, x: 480, y: 480, label: 'Pick up Rico’s cousin at the precinct corner', radius: 46 },
+      { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive him to Bay Trust Bank', radius: 56, needsCar: true },
+      { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while he settles it — 15s', radius: 80, wait: 15 },
+      { type: STAGE_DELIVER, x: G.x, y: G.y + 150, label: 'Drop him at Rico’s Garage', radius: 56, needsCar: true },
+    ];
+    case 7: return [
+      { type: STAGE_PICKUP, x: S.x, y: S.y + 120, label: 'Pick up the crew at the safehouse', radius: 46 },
+      { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
+      { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
+      { type: STAGE_DELIVER, x: H.x, y: H.y + 160, label: 'Get the crew to Hotel Palmera', radius: 56, needsCar: true },
+      { type: STAGE_ESCAPE, x: 0, y: 0, label: 'Lose the cops — get to zero stars', radius: 0 },
+    ];
+    default: return [];
   }
 }
 
-/** Start mission `index` (0-based) on the state. */
 export function startMission(state, random, index) {
   const def = MISSIONS[index];
-  const stages = missionStages(random, index);
   state.mission = {
-    index, def, stages, stageIndex: 0, timer: def.time,
+    index, def, stages: missionStages(random, index), stageIndex: 0, timer: def.time,
     text: `${def.title} — ${def.giver}`,
     specialCar: null, waitTimer: 0, started: false,
   };
@@ -102,7 +82,6 @@ export function missionTarget(state) {
   return { x: stage.x, y: stage.y, label: stage.label };
 }
 
-/** A taxi fare: pick up a walker, drop them off, get paid. Endless work. */
 export function startSideJob(state, random) {
   const pickup = randomSidewalkPoint(random, state.player.x, state.player.y, 700);
   const drop = randomSidewalkPoint(random, pickup.x, pickup.y, 900);
@@ -131,7 +110,6 @@ function failMission(state, reason) {
   state.banner = { text: 'JOB FAILED', sub: reason, timer: 3 };
 }
 
-/** Advance the active mission one step. `addWanted` is the police module's crime hook; `spawnSpecialCar` parks the mission car. Returns nothing; */
 export function updateMission(state, dt, random, addWanted) {
   const m = state.mission;
   if (!m) return;
@@ -184,16 +162,17 @@ export function updateMission(state, dt, random, addWanted) {
   }
 }
 
-/** The next unstarted mission, or null when the story is done. */
 export function nextMissionIndex(state) {
   return state.missionsDone < MISSIONS.length ? state.missionsDone : null;
 }
 
-/** Start the next story job when the player is near the safehouse. */
 export function tryStartNextMission(state, random) {
   const idx = nextMissionIndex(state);
   if (idx === null || state.mission) return false;
-  if (!HL.Economy.canStart(idx, state.money)) { state.banner = { text: 'Need $' + HL.Economy.need(idx), sub: 'Fund the crew before this job', timer: 3 }; return false; }
+  if (!HL.Economy.canStart(idx, state.money)) {
+    state.banner = { text: 'Need $' + HL.Economy.need(idx), sub: 'Fund the crew before this job', timer: 3 };
+    return false;
+  }
   startMission(state, random, idx);
   return true;
 }
