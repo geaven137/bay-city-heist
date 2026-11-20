@@ -16,7 +16,7 @@ export function createInput(target) {
   const held = new Set();
   let actions = 0;
   let mouseX = 0, mouseY = 0, mouseDown = false, lookDX = 0, aiming = false;
-  let shoulder = 1; // 1 = right shoulder (player on the left), -1 = swapped
+  let shoulder = 1;
 
   function press(code) {
     if (inBind('up', code) || inBind('down', code) || inBind('left', code) || inBind('right', code)) held.add(code);
@@ -48,7 +48,7 @@ export function createInput(target) {
     mouseDown = true;
     actions |= ACTION_CONFIRM | ACTION_SHOOT;
     if (target.requestPointerLock) {
-      try { target.requestPointerLock(); } catch { /* pointer lock refused: mouse still steers */ }
+      try { target.requestPointerLock(); } catch { /* pointer lock refused */ }
     }
   });
   target.addEventListener('pointerup', (e) => {

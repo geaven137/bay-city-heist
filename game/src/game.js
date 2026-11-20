@@ -210,7 +210,7 @@ export function stepGame(game, dt, input, audio, harmless) {
 
   if (input.actions !== undefined && input.actions !== 0) {
     const acts = input.actions;
-    if (acts & 4) { // ACTION_ENTER_CAR
+    if (acts & 4) {
       if (p.onFoot) {
         const car = nearestCar(state, p.x, p.y, 70);
         if (car && !car.wrecked) {
@@ -222,10 +222,10 @@ export function stepGame(game, dt, input, audio, harmless) {
         exitCar(state);
       }
     }
-    if (acts & 8) { // ACTION_PUNCH
+    if (acts & 8) {
       if (p.onFoot && !harmless) { punch(state, random); if (audio) audio.punch(); }
     }
-    if (acts & 16) { // ACTION_SHOOT
+    if (acts & 16) {
       if (p.onFoot && input.aim && !harmless) { shoot(state, input.aim.x, input.aim.y, random); if (audio) audio.gunshot(); }
     }
   }

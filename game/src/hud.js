@@ -190,7 +190,7 @@ function drawDialogue(ctx, state, time) {
   const initials = giver === 'Mara Voss' ? 'MV' : 'R';
   const color = giver === 'Mara Voss' ? PALETTE.neonPink : '#e67e22';
   const line = DIALOGUE[state.mission.index] || '';
-  const x = 220, y = VIEW.height - 268; // clear of the minimap + its NEON BAY label (ends x=196)
+  const x = 220, y = VIEW.height - 268;
   panel(ctx, x, y, 420, 64);
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x + 32, y + 32, 22, 0, Math.PI * 2); ctx.fill();

@@ -48,8 +48,8 @@ export function updateShop(state, dt) {
   if (shop.msgT > 0) shop.msgT -= dt;
   const p = state.player;
   const d = Math.hypot(p.x - CITY.garage.x, p.y - CITY.garage.y);
-  if (!shop.open && p.onFoot && d < 140) { shop.open = true; shop.msg = ''; }
-  else if (shop.open && (!p.onFoot || d > 200)) { shop.open = false; shop.msg = ''; }
+  if (!shop.open && p.onFoot && d < 150) { shop.open = true; shop.msg = ''; }
+  else if (shop.open && (!p.onFoot || d > 210)) { shop.open = false; shop.msg = ''; }
 }
 
 export function shopOpen(state) {

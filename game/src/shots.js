@@ -9,7 +9,7 @@ import { SCREEN_BUSTED, SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.
 const START_SECONDS = 5;
 const PLAY_SECONDS = 24;
 const CHASE_SECONDS = 22;
-const END_LIMIT_SECONDS = 100;
+const BEACH_Y = 2080;
 
 function idleInput() {
   return { move: { x: 0, y: 0 }, run: false, handbrake: false, aim: null, actions: 0 };
@@ -72,7 +72,7 @@ function stealNearestCar(game, limit) {
     let input;
     if (car && Math.hypot(car.x - p.x, car.y - p.y) < 70) {
       input = idleInput();
-      input.actions = 4; // ACTION_ENTER_CAR
+      input.actions = 4;
     } else if (car) input = walkToward(game, car.x, car.y);
     else input = idleInput();
     stepGame(game, STEP, input, null, false);
@@ -141,14 +141,12 @@ function spreadPolice(game) {
   }
 }
 
-const BEACH_Y = 2080;
 function driveBeach(game, dir) {
   const car = game.state.player.car;
   if (!car) return idleInput();
   return driveToward(game, dir > 0 ? 3000 : 200, BEACH_Y);
 }
 
-// Beach road (y=2080): buildings north only, sea south — nothing fills the frame.
 function beachStart(game) {
   const car = game.state.player.car;
   if (!car) return;
@@ -179,8 +177,6 @@ function clearAhead(game) {
   }
 }
 
-// Final framing: clean beach-road shot even if the sim wedged the car;
-// pins speed to a fast cruise.
 function beachFrame(game, kmh) {
   const s = game.state, car = s.player.car;
   if (!car) return;
@@ -196,8 +192,6 @@ function beachFrame(game, kmh) {
   clearAhead(game);
 }
 
-// Trail formation behind the player car (after a re-place, the loop's
-// trailPolice spots no longer apply).
 function stagePolice(game) {
   const s = game.state, car = s.player.car;
   if (!car) return;
@@ -206,7 +200,7 @@ function stagePolice(game) {
   let i = 0;
   for (const c of s.cars) {
     if (c.kind !== 'police') continue;
-    const back = 170 + i * 70; // each cop its own slot — never two on one spot
+    const back = 170 + i * 70;
     let placed = false;
     for (const lat of (i % 2 === 0 ? [72, -72, 0] : [-72, 72, 0])) {
       const nx = car.x - fx * back + px * lat;
@@ -220,8 +214,6 @@ function stagePolice(game) {
   }
 }
 
-// Square the camera back on the road axis; clearShot's lamp dodge can
-// sidestep it off-road.
 function reframeCamera(g) {
   const s = g.state, cam = s.camera;
   const p = s.player, tx = p.car ? p.car.x : p.x, ty = p.car ? p.car.y : p.y;
@@ -248,7 +240,7 @@ function clearShot(g) {
       break;
     }
   }
-  if (!pl.car) { // on foot (end shot): pull the lens back so the crowd/lamp by the cop is not in the lens
+  if (!pl.car) {
     const nx = c.x - fx * 80, ny = c.y - fy * 80;
     if (!hitsBuilding(s.city, nx, ny, 14)) { c.x = nx; c.y = ny; }
   }
@@ -276,7 +268,7 @@ export function stageShot(name, game) {
       spreadPolice(game);
       clearShot(game);
       reframeCamera(game);
-      state.banner = null; // drop the WANTED banner so the play frame is clean
+      state.banner = null;
       return { screen: SCREEN_PLAY, best: state.money };
     }
     startMission(state, random, 3);
@@ -299,7 +291,7 @@ export function stageShot(name, game) {
     spreadPolice(game);
     clearShot(game);
     reframeCamera(game);
-    state.banner = null; // drop the fading WANTED banner so the chase frame is clean
+    state.banner = null;
     return { screen: SCREEN_PLAY, best: state.money };
   }
   if (name === 'end') {
@@ -358,7 +350,7 @@ export function stageShot(name, game) {
           }
         }
         clearShot(game);
-        state.banner = null; // no stale banner over the end panel
+        state.banner = null;
         return { screen: SCREEN_BUSTED, best: state.money };
       }
     }

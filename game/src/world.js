@@ -6,10 +6,10 @@ for (let x = CITY.pitch / 2; x < CITY.width; x += CITY.pitch) roadCentresX.push(
 for (let y = CITY.pitch / 2; y < CITY.height; y += CITY.pitch) roadCentresY.push(y);
 
 export function nearestCentre(list, value) {
-  let best = list[0], bestD = Math.abs(value - best);
+  let best = list[0], bd = Math.abs(value - best);
   for (const c of list) {
     const d = Math.abs(value - c);
-    if (d < bestD) { bestD = d; best = c; }
+    if (d < bd) { bd = d; best = c; }
   }
   return best;
 }
@@ -36,7 +36,7 @@ export function laneOffset(axis, dir) {
 }
 
 export function randomRoadPoint(random, x, y, minDist, maxDist) {
-  for (let tries = 0; tries < 24; tries += 1) {
+  for (let i = 0; i < 24; i += 1) {
     const vertical = random() < 0.5;
     const cx = roadCentresX[Math.floor(random() * roadCentresX.length)];
     const cy = roadCentresY[Math.floor(random() * roadCentresY.length)];
@@ -94,8 +94,7 @@ function makeBuilding(random, bx, by, bw, bh, name) {
     x: bx + 14, y: by + 14, w: bw - 28, h: bh - 28,
     height: 22 + random() * 68, color, roof, name: name || null,
     neon: random() < 0.35, beachfront,
-    facade: hash % 4, // 0 window grid, 1 shopfront, 2 strip, 3 balcony
-    lit: 0.35 + (hash % 5) * 0.1, // fraction of windows lit at dusk
+    facade: hash % 4, lit: 0.35 + (hash % 5) * 0.1,
   };
 }
 
@@ -178,8 +177,6 @@ export function createState(city, random) {
     camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2, fov: 1.15, shoulder: 0, shake: 0 },
     wasted: false, busted: false, endTimer: 0,
     stats: { carsStolen: 0, missionsDone: 0, shotsFired: 0, pedsDown: 0 },
-    banner: null, // {text, sub, timer} — big centre message (mission, WASTED…)
-    flash: 0, // red damage flash, 0..1
-    sideJob: null, // repeatable taxi fare after the story
+    banner: null, flash: 0, sideJob: null,
   };
 }

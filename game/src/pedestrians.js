@@ -10,7 +10,7 @@ export function makePed(random, x, y, hot) {
   return {
     x, y, angle: random() * Math.PI * 2, speed: 40 + random() * 40,
     color: PALETTE.ped[Math.floor(random() * PALETTE.ped.length)],
-    kind, mode: 'walk', // 'walk' | 'flee' | 'down'
+    kind, mode: 'walk',
     fleeX: 0, fleeY: 0, timer: 1 + random() * 3, down: false, downTimer: 0,
     axis: random() < 0.5 ? 'x' : 'y', dir: random() < 0.5 ? 1 : -1,
   };

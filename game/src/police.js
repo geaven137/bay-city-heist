@@ -9,7 +9,7 @@ export function wantedStars(state) {
 
 export function addWanted(state, points, x, y, crime) {
   if (points <= 0) return;
-  if (crime && crime !== 'alarm' && !HL.Wanted.seen(state, crime, x, y)) return; // unseen: no heat
+  if (crime && crime !== 'alarm' && !HL.Wanted.seen(state, crime, x, y)) return;
   state.wantedPoints += points;
   state.wanted = Math.min(WANTED.maxStars, state.wantedPoints);
   state.unseenTimer = 0;
@@ -27,7 +27,7 @@ export function maintainPolice(state, random) {
   const cops = state.cars.filter((c) => c.kind === 'police');
   const p = state.player;
   for (const cop of cops) {
-    if (cop.roadblock) continue; // a roadblock holds its ground
+    if (cop.roadblock) continue;
     if (Math.hypot(cop.x - p.x, cop.y - p.y) > 1600) {
       cop.x = Math.max(60, Math.min(state.city.width - 60, p.x + (random() < 0.5 ? -1 : 1) * (600 + random() * 300)));
       cop.y = Math.max(60, Math.min(state.city.height - 60, p.y + (random() - 0.5) * 600));
@@ -38,7 +38,7 @@ export function maintainPolice(state, random) {
 }
 
 export function updatePoliceCar(state, cop, dt, random) {
-  if (cop.roadblock) { cop.speed *= Math.max(0, 1 - 4 * dt); return; } // hold the line
+  if (cop.roadblock) { cop.speed *= Math.max(0, 1 - 4 * dt); return; }
   const p = state.player;
   const tx = p.car ? p.car.x : p.x;
   const ty = p.car ? p.car.y : p.y;

@@ -1,5 +1,5 @@
 export const VIEW = { width: 1280, height: 720 };
-export const STEP = 1 / 60; // fixed sim step, 60 updates a second
+export const STEP = 1 / 60;
 export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 export const SAVE_KEY = 'neon-bay.save.v1';
 export const BEST_KEY = 'neon-bay.best.v1';

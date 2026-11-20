@@ -13,7 +13,7 @@ export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const SCREEN_BUSTED = 'busted';
 
-let THREE = null; // set in createRenderer from window.THREE (the vendored UMD build)
+let THREE = null;
 const P2 = Math.PI / 2;
 const rotY = (th) => P2 - th;
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -54,7 +54,7 @@ function glowTex(inner, outer) {
 }
 
 function groundTexture() {
-  const S = 2048 / CITY.width; // px per world unit
+  const S = 2048 / CITY.width;
   return makeTex(2048, 1536, (g) => {
     g.fillStyle = PALETTE.grass; g.fillRect(0, 0, 2048, 1536);
     g.fillStyle = PALETTE.park;
@@ -129,7 +129,7 @@ export function createRenderer(canvas, hudCanvas) {
       shadowMap: {}, toneMapping: 0, toneMappingExposure: 1,
     };
   }
-  const headless = !renderer.getContext; // the stub has no getContext: no real GL here
+  const headless = !renderer.getContext;
 
   const scene = new THREE.Scene();
   scene.fog = new THREE.Fog(0x3a2a4a, 500, 1600);
@@ -297,7 +297,7 @@ export function createRenderer(canvas, hudCanvas) {
   const carBody = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXCARS);
   const carCabin = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x1a2028 }), MAXCARS);
   const wheelGeo = new THREE.CylinderGeometry(7, 7, 5, 10);
-  wheelGeo.rotateZ(P2); // axle along X
+  wheelGeo.rotateZ(P2);
   const carWheel = new THREE.InstancedMesh(wheelGeo, new THREE.MeshLambertMaterial({ color: 0x14161a }), MAXCARS * 4);
   const carHead = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xfff2cc }), MAXCARS * 2);
   const carTail = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xff2a2a }), MAXCARS * 2);
@@ -486,7 +486,7 @@ export function createRenderer(canvas, hudCanvas) {
     const px = p.car ? p.car.x : p.x;
     const py = p.car ? p.car.y : p.y;
     const fx = Math.cos(state.camera.angle), fy = Math.sin(state.camera.angle);
-    const shot = !!state._hlShot; // staged shot: park the heli in frame (low, ahead) instead of letting it fly in
+    const shot = !!state._hlShot;
     const tx = px + fx * 150 - fy * (shot ? 40 : 50);
     const ty = py + fy * 150 + fx * (shot ? 40 : 50);
     const hh = shot ? 85 : CAM3D.heliHeight;
@@ -699,7 +699,6 @@ export function createRenderer(canvas, hudCanvas) {
     }
     const speedKmh = state.player.car ? carSpeedKmh(state.player.car) : null;
     if (screen === SCREEN_OVER || screen === SCREEN_BUSTED) {
-      // End screens: hide the gameplay HUD behind the panel; dim the scene.
       hudCtx.fillStyle = 'rgba(8,10,18,0.55)';
       hudCtx.fillRect(0, 0, VIEW.width, VIEW.height);
     } else {
@@ -710,10 +709,10 @@ export function createRenderer(canvas, hudCanvas) {
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', '', 'Progress saves when a job ends.'], 'Press P to resume • S to save now');
     } else if (screen === SCREEN_OVER) {
-      const fee = Math.min(state.money, 100); // recover() takes exactly this much
+      const fee = Math.min(state.money, 100);
       drawPanel('WASTED', ['You woke up at St. Marina Hospital.', fee > 0 ? `The doctors kept $${fee}.` : 'The doctors patched you up for free.', `Haul so far: $${state.money - fee}`], 'Press Space or click to play again');
     } else if (screen === SCREEN_BUSTED) {
-      const fee = Math.min(state.money, 100); // recover() takes exactly this much
+      const fee = Math.min(state.money, 100);
       drawPanel('BUSTED', ['The Bayview police took you in.', fee > 0 ? `They kept $${fee} of your money.` : 'You had nothing worth taking.', `Haul so far: $${state.money - fee}`], 'Press Space or click to play again');
     }
   }

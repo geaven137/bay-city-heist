@@ -21,7 +21,7 @@ const renderer = createRenderer(canvas, hudCanvas);
 const ctx2d = hudCanvas.getContext('2d');
 
 function runShot(name) {
-  game.state._hlShot = true; // scripted demo: no roadblocks, so the frames stay comparable
+  game.state._hlShot = true;
   const scene = stageShot(name, game);
   let painted = 0;
   function paint() {
@@ -79,7 +79,7 @@ function runGame() {
     return {
       move: { x: mx, y: my }, run: input.run, handbrake: input.handbrake, aim,
       look: pendingLook, aiming: input.aiming || HL.Input.touch.aim || (pad ? pad.aiming : false), shoulder: input.shoulder,
-      actions: 0, // actions are consumed by handleActions; see below
+      actions: 0,
     };
   }
 
@@ -120,7 +120,7 @@ function runGame() {
           accumulator -= STEP;
           if (game.state.wasted || game.state.busted) break;
         }
-        pendingLook = look; // unconsumed look (no step this frame) carries over
+        pendingLook = look;
         if (game.state.wasted) screen = SCREEN_OVER;
         else if (game.state.busted) screen = SCREEN_BUSTED;
         trackBest();

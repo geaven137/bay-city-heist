@@ -11,12 +11,12 @@ export const FLEET_COLOR = {
 
 export function pickFleetKind(random) {
   const r = random();
-  if (r < 0.15) return FLEET_KINDS[Math.floor(random() * 5)]; // trucks + ambulance
-  if (r < 0.3) return FLEET_KINDS[5 + Math.floor(random() * 3)]; // motorcycles
-  return null; // plain sedan
+  if (r < 0.15) return FLEET_KINDS[Math.floor(random() * 5)];
+  if (r < 0.3) return FLEET_KINDS[5 + Math.floor(random() * 3)];
+  return null;
 }
 
-function mat(THREE, color, rough, metal) {
+function mat(THREE, color) {
   return new THREE.MeshLambertMaterial({ color });
 }
 function box(THREE, parent, w, h, d, x, y, z, color, ry) {
@@ -27,7 +27,7 @@ function box(THREE, parent, w, h, d, x, y, z, color, ry) {
   parent.add(m);
   return m;
 }
-function cylZ(THREE, parent, r, len, x, y, z, color, seg) {
+function tube(THREE, parent, r, len, x, y, z, color, seg) {
   const geo = new THREE.CylinderGeometry(r, r, len, seg || 12);
   geo.rotateX(Math.PI / 2);
   const m = new THREE.Mesh(geo, mat(THREE, color));
@@ -37,16 +37,16 @@ function cylZ(THREE, parent, r, len, x, y, z, color, seg) {
   return m;
 }
 
-function buildPropPlane(THREE) {
+function buildProp(THREE) {
   const g = new THREE.Group();
-  cylZ(THREE, g, 0.72, 6.8, 0, 1.35, 0, 0xf8fafc, 14);
-  box(THREE, g, 1.46, 0.22, 6.4, 0, 1.35, 0, 0x0284c7);
-  box(THREE, g, 1.22, 0.52, 1.7, 0, 1.82, 0.55, 0x1e293b);
-  box(THREE, g, 10.6, 0.16, 1.65, 0, 2.08, 0.35, 0xf8fafc);
-  box(THREE, g, 0.14, 1.85, 1.25, 0, 2.15, -3.05, 0x0284c7);
-  box(THREE, g, 3.4, 0.12, 0.95, 0, 1.45, -3.15, 0xf8fafc);
+  tube(THREE, g, 0.7, 6.6, 0, 1.3, 0, 0xf8fafc, 14);
+  box(THREE, g, 1.4, 0.2, 6.2, 0, 1.3, 0, 0x0284c7);
+  box(THREE, g, 1.2, 0.5, 1.6, 0, 1.8, 0.5, 0x1e293b);
+  box(THREE, g, 10.4, 0.16, 1.6, 0, 2.05, 0.35, 0xf8fafc);
+  box(THREE, g, 0.14, 1.8, 1.2, 0, 2.1, -3, 0x0284c7);
+  box(THREE, g, 3.3, 0.12, 0.9, 0, 1.4, -3.1, 0xf8fafc);
   const prop = new THREE.Group();
-  prop.position.set(0, 1.35, 3.55);
+  prop.position.set(0, 1.3, 3.5);
   const hub = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.65, 10), mat(THREE, 0x1e293b));
   hub.rotation.x = Math.PI / 2;
   prop.add(hub);
@@ -55,46 +55,46 @@ function buildPropPlane(THREE) {
   return { group: g, spin: [prop], blades: [blade] };
 }
 
-function buildTwinjet(THREE) {
+function buildJet(THREE) {
   const g = new THREE.Group();
-  cylZ(THREE, g, 1.65, 15.5, 0, 2.6, 0, 0xf1f5f9, 18);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.65, 18, 12), mat(THREE, 0xf1f5f9));
-  nose.position.set(0, 2.6, 7.75); nose.scale.set(1, 1, 1.35); g.add(nose);
-  cylZ(THREE, g, 1.65, 4.2, 0, 2.75, -9.8, 0xf1f5f9, 14);
-  box(THREE, g, 3.34, 0.35, 14.5, 0, 2.35, 0.4, 0x1d4ed8);
-  box(THREE, g, 11.5, 0.28, 3.2, -6.2, 2.25, -0.4, 0xf1f5f9, 0.32);
-  box(THREE, g, 11.5, 0.28, 3.2, 6.2, 2.25, -0.4, 0xf1f5f9, -0.32);
+  tube(THREE, g, 1.6, 15, 0, 2.6, 0, 0xf1f5f9, 18);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.6, 18, 12), mat(THREE, 0xf1f5f9));
+  nose.position.set(0, 2.6, 7.5); nose.scale.set(1, 1, 1.35); g.add(nose);
+  tube(THREE, g, 1.6, 4, 0, 2.7, -9.5, 0xf1f5f9, 14);
+  box(THREE, g, 3.3, 0.35, 14, 0, 2.3, 0.4, 0x1d4ed8);
+  box(THREE, g, 11.2, 0.28, 3.1, -6, 2.2, -0.4, 0xf1f5f9, 0.32);
+  box(THREE, g, 11.2, 0.28, 3.1, 6, 2.2, -0.4, 0xf1f5f9, -0.32);
   const fans = [];
-  for (const x of [-4.6, 4.6]) {
+  for (const x of [-4.5, 4.5]) {
     const nac = new THREE.Group();
-    nac.position.set(x, 1.55, 0.35);
-    cylZ(THREE, nac, 0.72, 2.3, 0, 0, 0, 0x334155, 14);
-    const fan = box(THREE, nac, 1.15, 0.14, 0.12, 0, 0, 1.05, 0xe2e8f0);
+    nac.position.set(x, 1.5, 0.35);
+    tube(THREE, nac, 0.7, 2.2, 0, 0, 0, 0x334155, 14);
+    const fan = box(THREE, nac, 1.1, 0.14, 0.12, 0, 0, 1, 0xe2e8f0);
     g.add(nac);
     fans.push(fan);
   }
-  box(THREE, g, 0.35, 4.4, 2.8, 0, 5.1, -9.4, 0x1d4ed8);
-  box(THREE, g, 7.6, 0.22, 1.8, 0, 3.2, -10.2, 0xf1f5f9);
+  box(THREE, g, 0.35, 4.3, 2.7, 0, 5, -9.2, 0x1d4ed8);
+  box(THREE, g, 7.4, 0.22, 1.7, 0, 3.1, -10, 0xf1f5f9);
   return { group: g, spin: fans, blades: [] };
 }
 
-function buildPrivateJet(THREE) {
+function buildPrivate(THREE) {
   const g = new THREE.Group();
-  cylZ(THREE, g, 0.95, 10.2, 0, 1.65, 0, 0xffffff, 16);
+  tube(THREE, g, 0.95, 10, 0, 1.6, 0, 0xffffff, 16);
   const nose = new THREE.Mesh(new THREE.SphereGeometry(0.95, 16, 12), mat(THREE, 0xffffff));
-  nose.position.set(0, 1.65, 5.1); nose.scale.set(1, 1, 1.45); g.add(nose);
-  cylZ(THREE, g, 0.9, 3.2, 0, 1.85, -6.6, 0xffffff, 12);
-  box(THREE, g, 1.94, 0.14, 9.6, 0, 1.55, 0.2, 0xf59e0b);
-  box(THREE, g, 6.8, 0.18, 1.75, -3.8, 1.45, 0.3, 0xffffff, 0.38);
-  box(THREE, g, 6.8, 0.18, 1.75, 3.8, 1.45, 0.3, 0xffffff, -0.38);
-  cylZ(THREE, g, 0.42, 1.85, -1.25, 2.25, -4.4, 0x1e293b, 12);
-  cylZ(THREE, g, 0.42, 1.85, 1.25, 2.25, -4.4, 0x1e293b, 12);
-  box(THREE, g, 0.24, 2.7, 1.75, 0, 3.1, -6.3, 0xf59e0b);
-  box(THREE, g, 4.2, 0.14, 1.1, 0, 4.35, -6.9, 0xffffff);
+  nose.position.set(0, 1.6, 5); nose.scale.set(1, 1, 1.45); g.add(nose);
+  tube(THREE, g, 0.9, 3.1, 0, 1.8, -6.4, 0xffffff, 12);
+  box(THREE, g, 1.9, 0.14, 9.4, 0, 1.5, 0.2, 0xf59e0b);
+  box(THREE, g, 6.6, 0.18, 1.7, -3.7, 1.4, 0.3, 0xffffff, 0.38);
+  box(THREE, g, 6.6, 0.18, 1.7, 3.7, 1.4, 0.3, 0xffffff, -0.38);
+  tube(THREE, g, 0.42, 1.8, -1.2, 2.2, -4.3, 0x1e293b, 12);
+  tube(THREE, g, 0.42, 1.8, 1.2, 2.2, -4.3, 0x1e293b, 12);
+  box(THREE, g, 0.24, 2.6, 1.7, 0, 3, -6.1, 0xf59e0b);
+  box(THREE, g, 4.1, 0.14, 1.1, 0, 4.2, -6.7, 0xffffff);
   return { group: g, spin: [], blades: [] };
 }
 
-function buildAirstrip(THREE, scene) {
+function buildStrip(THREE, scene) {
   const strip = new THREE.Mesh(
     new THREE.PlaneGeometry(2400, 46),
     new THREE.MeshLambertMaterial({ color: 0x2b2f3a }),
@@ -122,11 +122,11 @@ function buildAirstrip(THREE, scene) {
 }
 
 export function createFleet(THREE, scene) {
-  buildAirstrip(THREE, scene);
+  buildStrip(THREE, scene);
   const lanes = [
-    { build: buildPropPlane, y: 1000, h: 320, speed: 130, off: 1500, dir: 1, scale: 1 },
-    { build: buildTwinjet, y: 1450, h: 430, speed: 210, off: 400, dir: -1, scale: 1.6 },
-    { build: buildPrivateJet, y: 620, h: 380, speed: 170, off: 2600, dir: 1, scale: 1.2 },
+    { build: buildProp, y: 1000, h: 320, speed: 130, off: 1500, dir: 1, scale: 1 },
+    { build: buildJet, y: 1450, h: 430, speed: 210, off: 400, dir: -1, scale: 1.6 },
+    { build: buildPrivate, y: 620, h: 380, speed: 170, off: 2600, dir: 1, scale: 1.2 },
   ];
   const planes = lanes.map((lane) => {
     const made = lane.build(THREE);

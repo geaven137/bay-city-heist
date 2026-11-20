@@ -3,7 +3,7 @@ export function createAudio() {
   let engineOsc = null, engineGain = null, sirenOsc = null, sirenGain = null;
   let musicTimer = null, muted = false, musicStep = 0;
 
-  const BASS = [55, 55, 65.41, 55, 49, 55, 82.41, 73.42];
+  const BASS = [55, 65.41, 55, 49, 55, 82.41, 73.42, 55];
 
   function ensure() {
     if (ctx) return true;

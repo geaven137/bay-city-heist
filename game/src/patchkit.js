@@ -5,7 +5,7 @@ import { makeCar } from './vehicles.js';
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const d2 = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
 const angD = (a, b) => { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
-const h2 = (a, b) => { const h = (a * 374761393 + b * 668265263) % 1000; return ((h % 1000) + 1000) % 1000 / 1000; }; // deterministic 0..1, no shared RNG
+const h2 = (a, b) => { const h = (a * 374761393 + b * 668265263) % 1000; return ((h % 1000) + 1000) % 1000 / 1000; };
 const segD = (px, py, ax, ay, bx, by) => {
   const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
   let t = ((px - ax) * dx + (py - ay) * dy) / l2;
@@ -21,6 +21,7 @@ function sum(s) { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= 
 function memStore() { const d = {}; return { getItem: (k) => (k in d ? d[k] : null), setItem: (k, v) => { d[k] = String(v); }, removeItem: (k) => { delete d[k]; } }; }
 const MEM = memStore();
 function store(s) { if (s) return s; try { return (typeof window !== 'undefined' && window.localStorage) || MEM; } catch { return MEM; } }
+
 const Save = {
   VERSION: 2,
   migrations: { 1: (o) => ({ money: o.money ?? 60, health: o.health ?? 100, ammo: o.ammo ?? 24, missionsDone: o.missionsDone ?? 0, storyDone: !!o.storyDone, x: o.x, y: o.y, time: o.time ?? 0, profile: null, economy: null, skyTime: 18.5 }) },
@@ -54,10 +55,12 @@ const Save = {
     return true;
   },
 };
+
 const Guard = {
   run(fn) { try { fn(); return true; } catch (e) { emit('error', e); return false; } },
   clampDt(dt) { return dt > 0.1 ? 0.1 : dt; },
 };
+
 function loop(fn) {
   let last = (typeof performance !== 'undefined' ? performance.now() : 0);
   let on = true;
@@ -71,6 +74,7 @@ function loop(fn) {
   if (typeof requestAnimationFrame !== 'undefined') requestAnimationFrame(tick);
   return () => { on = false; };
 }
+
 const Perf = {
   level: 0, ema: 60, _t: 0, _up: 0,
   frame(dt) {
@@ -82,6 +86,7 @@ const Perf = {
   set(l) { if (l === this.level) return; this.level = l; emit('perf:quality', { level: l, scale: [1, 0.75, 0.5][l] }); },
   reset() { this.level = 0; this.ema = 60; this._t = 0; this._up = 0; },
 };
+
 const Audio = {
   _on: false,
   attach(unlock) {
@@ -99,6 +104,7 @@ const Audio = {
     window.addEventListener('keydown', go);
   },
 };
+
 const Bounds = {
   _safe: null, _t: 0, _lx: 0, _ly: 0, _stuck: 0,
   reset() { this._safe = null; this._t = 0; this._stuck = 0; },
@@ -121,6 +127,7 @@ const Bounds = {
     return null;
   },
 };
+
 const Missions = {
   cp: null, _stage: -1, _best: 0, _still: 0, _stuck: false,
   reset() { this.cp = null; this._stage = -1; this._best = 0; this._still = 0; this._stuck = false; },
@@ -158,6 +165,7 @@ const Missions = {
     if (this._still > 20 && !this._stuck) { this._stuck = true; emit('mission:stuck', { mission: m.def.id }); }
   },
 };
+
 const Profile = {
   score: 0, takedowns: 0, clean: 0, path: null, _t: 0,
   tier() { return this.score >= 12 ? 4 : this.score >= 8 ? 3 : this.score >= 5 ? 2 : this.score >= 2 ? 1 : 0; },
@@ -175,14 +183,16 @@ const Profile = {
   restore(o) { if (!o) return; this.score = o.score || 0; this.takedowns = o.takedowns || 0; this.clean = o.clean || 0; this.path = o.path || null; this._t = this.tier(); },
   reset() { this.score = 0; this.takedowns = 0; this.clean = 0; this.path = null; this._t = 0; },
 };
+
 const Weapons = {
   drawn(state) { const p = state.player; return !!(p.onFoot && (p.aiming || p.shootTimer > 0)); },
 };
+
 const Witness = {
   canSee(ped, x, y, city) {
     const d = d2(ped.x, ped.y, x, y);
     if (d > 520 || d < 1) return false;
-    if (d < 60) return true; // right there — they feel it, whatever they face
+    if (d < 60) return true;
     if (Math.abs(angD(Math.atan2(y - ped.y, x - ped.x), ped.angle)) > 0.9) return false;
     for (let i = 1; i <= 6; i++) {
       if (hitsBuilding(city, ped.x + (x - ped.x) * i / 7, ped.y + (y - ped.y) * i / 7, 0)) return false;
@@ -201,6 +211,7 @@ const Witness = {
     return ped.kind === 'police' ? 'call_police' : 'flee';
   },
 };
+
 const Wanted = {
   _lost: 0, _rbAt: -999,
   seen(state, crime, x, y) {
@@ -228,6 +239,7 @@ const Wanted = {
   },
   reset() { this._lost = 0; this._rbAt = -999; },
 };
+
 const SpikeStrip = {
   deploy(state, ax, ay, bx, by) { (state._hlSpikes || (state._hlSpikes = [])).push({ ax, ay, bx, by, t: 40 }); },
   update(state, dt) {
@@ -243,6 +255,7 @@ const SpikeStrip = {
     }
   },
 };
+
 const Roadblock = {
   plan(state, dist) {
     const p = state.player;
@@ -256,7 +269,7 @@ const Roadblock = {
     return { x, y, heading: horiz ? 0 : Math.PI / 2 };
   },
   update(state, dt, random) {
-    if (state._hlShot) return; // scripted screenshot staging: keep the frames comparable
+    if (state._hlShot) return;
     if (state.wanted < 3) return;
     if (state.time - Wanted._rbAt < 30) return;
     if (state.cars.some((c) => c.roadblock)) return;
@@ -272,6 +285,7 @@ const Roadblock = {
     emit('wanted:change', { to: state.wanted, roadblock: true });
   },
 };
+
 const Pool = {
   make(n, factory) {
     const items = [];
@@ -279,6 +293,7 @@ const Pool = {
     return { items, next: 0, take() { const it = this.items[this.next]; this.next = (this.next + 1) % this.items.length; return it; } };
   },
 };
+
 const Sky = {
   time: 18.5, rain: 0, wet: 0, _w: 'clear', _wt: 0, drops: null,
   update(dt, state) {
@@ -312,6 +327,7 @@ const Sky = {
   restore(t) { if (t !== undefined && t !== null) this.time = t; },
   reset() { this.time = 18.5; this.rain = 0; this.wet = 0; this._w = 'clear'; this._wt = 0; },
 };
+
 const Input = {
   bind: { up: ['ArrowUp', 'KeyW'], down: ['ArrowDown', 'KeyS'], left: ['ArrowLeft', 'KeyA'], right: ['ArrowRight', 'KeyD'], confirm: ['Space', 'Enter'], pause: ['KeyP', 'Escape'], enter: ['KeyE'], shoot: ['KeyF'], mute: ['KeyM'], retry: ['KeyR'], shoulder: ['KeyQ'] },
   _padPrev: 0,
@@ -406,6 +422,7 @@ const Input = {
     }
   },
 };
+
 const Economy = {
   gate: { 4: 500 },
   canStart(idx, money) { const g = this.gate[idx]; return g === undefined || money >= g; },
@@ -413,6 +430,7 @@ const Economy = {
   serialize() { return { gate: this.gate }; },
   restore(o) { if (o && o.gate) this.gate = o.gate; },
 };
+
 export const HL = {
   on, emit,
   Save, Guard, loop, Perf, Audio, Bounds, Missions, Profile, Weapons, Witness, Wanted, SpikeStrip, Roadblock, Pool, Sky, Input, Economy,

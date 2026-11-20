@@ -13,7 +13,7 @@ export function punch(state, random) {
     if (ped.down) continue;
     if (Math.hypot(ped.x - px, ped.y - py) < 30) {
       knockDownPed(state, ped, (n, x, y) => addWanted(state, n, x, y, 'punch'));
-      spawnParticles(state, ped.x, ped.y, 8, '#ffd23f', 120);
+      spawnParticles(state, ped.x, ped.y, 10, '#ffd23f', 120);
     }
   }
   scarePedestrians(state, p.x, p.y, 180);

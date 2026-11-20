@@ -3,7 +3,7 @@ import { HL } from './patchkit.js';
 import { makeCar } from './vehicles.js';
 import { randomRoadPoint, randomSidewalkPoint } from './world.js';
 
-HL.Economy.gate[7] = 1500; // the final job needs a $1500 bankroll
+HL.Economy.gate[7] = 1500;
 
 export const STAGE_GOTO = 'goto';
 export const STAGE_PICKUP = 'pickup';
@@ -152,7 +152,7 @@ export function updateMission(state, dt, random, addWanted) {
     }
     return;
   }
-  if (stage.needsCar && p.onFoot) return; // deliver stages need wheels
+  if (stage.needsCar && p.onFoot) return;
   if (dist < stage.radius) {
     if (stage.type === STAGE_PICKUP || stage.type === STAGE_GOTO) {
       state.banner = { text: 'Picked up', sub: stage.label, timer: 1.6 };
