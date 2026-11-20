@@ -4,7 +4,7 @@
 [![rank](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 [![reward](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
 
-NEON BAY — an original open-world crime game that runs offline in a desktop browser. A third-person shooter (TPS) raycaster: drive a stolen car through a neon beach city, take jobs from Mara Voss, lose the cops, and survive the wanted level. Built with vanilla JavaScript + Canvas 2D — no libraries, no network, no external assets. Realistic rear-view cars, aim with dead zone + response curve + light aim assist, 3D-reading characters (MC, citizens, police, firefighter), and a living city (varied facades, road markings, streetlights, neon signs).
+NEON BAY — an original open-world crime game that runs offline in a desktop browser. Real 3D (Three.js, low-poly, golden hour): drive a stolen car through a neon beach city, take 8 jobs from Mara Voss, lose the cops and the Air One helicopter, and survive the wanted level. Built with vanilla JavaScript + vendored Three.js — no network, no external assets. Box-built 3D cars (wheels spin, body leans), procedural 3D characters (MC, citizens, police, firefighter), a living city (varied facades, road markings, zebra crossings, streetlights, neon signs, beach + sea), and a dense HUD (rank, police dispatch, weapon slots, radio, dialogue, minimap).
 
 ## Run it
 
