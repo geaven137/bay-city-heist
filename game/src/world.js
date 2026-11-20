@@ -91,11 +91,15 @@ export function beachGap(x, y) {
 
 export function buildCityMeshes(scene, city) {
   const T = globalThis.THREE;
+  // NOTE: this world is Z-up — the ground IS the XY plane, so
+  // PlaneGeometry / CircleGeometry (already XY, facing +Z) must NOT
+  // be rotated. (An earlier build used rotation.x = -PI/2, the Y-up
+  // trick, which turned every ground/road plane into a vertical
+  // wall and left the camera staring at the bare sky.)
   const ground = new T.Mesh(
     new T.PlaneGeometry(WORLD.size * 1.6, WORLD.size * 1.6),
     new T.MeshStandardMaterial({ color: PALETTE.ground, roughness: 1 })
   );
-  ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, 0, -0.5);
   ground.receiveShadow = true;
   scene.add(ground);
@@ -104,7 +108,6 @@ export function buildCityMeshes(scene, city) {
     new T.PlaneGeometry(2600, 420),
     new T.MeshStandardMaterial({ color: PALETTE.sea, roughness: 0.25, metalness: 0.35 })
   );
-  sea.rotation.x = -Math.PI / 2;
   sea.position.set(900, WORLD.seaY + 120, 0.5);
   sea.receiveShadow = true;
   scene.add(sea);
@@ -113,7 +116,6 @@ export function buildCityMeshes(scene, city) {
     new T.PlaneGeometry(2400, 130),
     new T.MeshStandardMaterial({ color: PALETTE.sand, roughness: 1 })
   );
-  sand.rotation.x = -Math.PI / 2;
   sand.position.set(900, 2180, 0.2);
   sand.receiveShadow = true;
   scene.add(sand);
@@ -123,18 +125,15 @@ export function buildCityMeshes(scene, city) {
   for (let k = -7; k <= 7; k++) {
     const c = k * WORLD.roadGap;
     const v = new T.Mesh(new T.PlaneGeometry(WORLD.roadWidth, WORLD.size), roadMat);
-    v.rotation.x = -Math.PI / 2;
     v.position.set(c, 0, 0.05);
     v.receiveShadow = true;
     scene.add(v);
     const h = new T.Mesh(new T.PlaneGeometry(WORLD.size, WORLD.roadWidth), roadMat);
-    h.rotation.x = -Math.PI / 2;
     h.position.set(0, c, 0.05);
     h.receiveShadow = true;
     scene.add(h);
   }
   const beach = new T.Mesh(new T.PlaneGeometry(1800, WORLD.roadWidth + 6), roadMat);
-  beach.rotation.x = -Math.PI / 2;
   beach.position.set(1250, WORLD.beachY, 0.05);
   beach.receiveShadow = true;
   scene.add(beach);
@@ -174,7 +173,11 @@ export function buildCityMeshes(scene, city) {
   roofs.castShadow = true;
   scene.add(roofs);
 
-  // Palms: instanced trunks and canopies.
+  // Palms: instanced trunks and canopies. Cylinders/cones are built
+  // along local Y, so each instance gets a +90 deg X rotation (qUp)
+  // to stand them upright along world Z. (Without it the trunks lie
+  // flat on the ground and the canopies point sideways.)
+  const qUp = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), Math.PI / 2);
   const trunkGeo = new T.CylinderGeometry(0.35, 0.55, 14, 7);
   const trunkMat = new T.MeshStandardMaterial({ color: 0x7a5230, roughness: 1 });
   const trunks = new T.InstancedMesh(trunkGeo, trunkMat, city.palms.length);
@@ -184,10 +187,10 @@ export function buildCityMeshes(scene, city) {
   city.palms.forEach((p, i) => {
     pos.set(p.x, p.y, 7 * p.s);
     sc.set(p.s, p.s, p.s);
-    m4.compose(pos, q, sc);
+    m4.compose(pos, qUp, sc);
     trunks.setMatrixAt(i, m4);
     pos.set(p.x, p.y, (14 + 3) * p.s);
-    m4.compose(pos, q, sc);
+    m4.compose(pos, qUp, sc);
     canopies.setMatrixAt(i, m4);
   });
   trunks.castShadow = true;
@@ -195,7 +198,8 @@ export function buildCityMeshes(scene, city) {
   scene.add(trunks);
   scene.add(canopies);
 
-  // Lamp posts, instanced.
+  // Lamp posts, instanced. Posts are cylinders: same qUp so they
+  // stand up; bulbs are spheres, rotation-free.
   const postGeo = new T.CylinderGeometry(0.22, 0.3, 11, 6);
   const postMat = new T.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6, metalness: 0.5 });
   const posts = new T.InstancedMesh(postGeo, postMat, city.lamps.length);
@@ -205,7 +209,7 @@ export function buildCityMeshes(scene, city) {
   city.lamps.forEach((l, i) => {
     pos.set(l.x, l.y, 5.5);
     sc.set(1, 1, 1);
-    m4.compose(pos, q, sc);
+    m4.compose(pos, qUp, sc);
     posts.setMatrixAt(i, m4);
     pos.set(l.x, l.y, 11.2);
     m4.compose(pos, q, sc);
@@ -214,11 +218,10 @@ export function buildCityMeshes(scene, city) {
   scene.add(posts);
   scene.add(bulbs);
 
-  // Parks as flat green discs.
+  // Parks as flat green discs (CircleGeometry is already XY: no rotation).
   const parkMat = new T.MeshStandardMaterial({ color: 0x2b6b34, roughness: 1 });
   for (const pk of city.parks) {
     const disc = new T.Mesh(new T.CircleGeometry(pk.r, 20), parkMat);
-    disc.rotation.x = -Math.PI / 2;
     disc.position.set(pk.x, pk.y, 0.15);
     disc.receiveShadow = true;
     scene.add(disc);
@@ -230,7 +233,6 @@ export function buildCityMeshes(scene, city) {
     new T.PlaneGeometry(strip.len, strip.wid),
     new T.MeshStandardMaterial({ color: 0x2e3138, roughness: 0.95 })
   );
-  runway.rotation.x = -Math.PI / 2;
   runway.position.set(strip.x, strip.y, 0.1);
   runway.receiveShadow = true;
   scene.add(runway);
@@ -238,6 +240,7 @@ export function buildCityMeshes(scene, city) {
     new T.CylinderGeometry(0.25, 0.3, 16, 6),
     new T.MeshStandardMaterial({ color: 0xd7dde3, roughness: 0.5, metalness: 0.6 })
   );
+  sockPole.rotation.x = Math.PI / 2; // cylinder Y-axis -> world Z (stand up)
   sockPole.position.set(strip.x + strip.len / 2 + 30, strip.y + 30, 8);
   sockPole.castShadow = true;
   scene.add(sockPole);

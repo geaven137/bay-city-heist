@@ -24,11 +24,14 @@ function piece(parent, geo, material, x, y, z, rx, ry, rz) {
 export function tyre(radius, width) {
   const T = globalThis.THREE;
   const g = new T.Group();
+  // CylinderGeometry is built along Y; rotateZ puts the axle along
+  // X (the car's width), so the wheel stands upright and spins
+  // around X. (rotateX would leave the axle vertical, a flat disc.)
   const tireGeo = new T.CylinderGeometry(radius, radius, width, 16);
-  tireGeo.rotateX(Math.PI / 2);
+  tireGeo.rotateZ(Math.PI / 2);
   piece(g, tireGeo, paint(0x14161a, 0.9, 0.05));
   const rimGeo = new T.CylinderGeometry(radius * 0.55, radius * 0.55, width * 1.06, 12);
-  rimGeo.rotateX(Math.PI / 2);
+  rimGeo.rotateZ(Math.PI / 2);
   piece(g, rimGeo, paint(0xcbd5e1, 0.3, 0.8));
   return g;
 }
@@ -141,7 +144,7 @@ export function syncCarMesh(car) {
   car.mesh.rotation.z = car.angle - Math.PI / 2;
   const spin = (car.wheelSpin || 0) * 0.12;
   if (car.wheels) {
-    for (const w of car.wheels) w.rotation.y = spin;
+    for (const w of car.wheels) w.rotation.x = spin;
   }
   if (car.strobeRed && car.strobeBlue) {
     const on = car.strobe;

@@ -113,12 +113,14 @@ function heliMesh() {
   const blade2 = new T.Mesh(new T.BoxGeometry(0.22, 11, 0.1), dark);
   rotor.add(blade2);
   g.add(rotor);
-  // Spotlight cone, translucent.
+  // Spotlight cone, translucent. ConeGeometry points along +Y; a
+  // -90 deg X rotation aims the apex up (at the heli) and the wide
+  // base down at the street. (rotation.x = PI left it horizontal.)
   const cone = new T.Mesh(
     new T.ConeGeometry(9, 26, 16, 1, true),
     new T.MeshBasicMaterial({ color: 0xfff6c9, transparent: true, opacity: 0.14, side: T.DoubleSide, depthWrite: false })
   );
-  cone.rotation.x = Math.PI;
+  cone.rotation.x = -Math.PI / 2;
   cone.position.set(0, 0.5, -13);
   g.add(cone);
   g.userData.rotor = rotor;
@@ -221,7 +223,10 @@ export function drawFrame(stage, state, dt) {
     const mesh = ensureCarMesh(stage, car);
     if (car.rig) {
       mesh.position.set(car.x, car.y, 0);
-      mesh.rotation.z = car.angle - Math.PI / 2;
+      // Rigs are built Y-up and carry rotation.x = +PI/2 (see
+      // craftRig), so the heading here is angle + PI/2, not - PI/2:
+      // with the X-flip, -PI/2 would point the rig backwards.
+      mesh.rotation.z = car.angle + Math.PI / 2;
       animateRig(car.rig, dt, state.time, car.speed);
     } else {
       syncCarMesh(car);
@@ -245,9 +250,9 @@ export function drawFrame(stage, state, dt) {
     const rig = stage.planeMeshes.get(pl);
     if (!rig) continue;
     rig.position.set(pl.x, pl.y, pl.z);
-    rig.rotation.z = pl.angle - Math.PI / 2;
-    rig.rotation.x = 0;
-    rig.rotation.y = 0;
+    // Only the heading is refreshed here; rotation.x = +PI/2 (set
+    // in craftRig, the Y-up -> Z-up conversion) must be left alone.
+    rig.rotation.z = pl.angle + Math.PI / 2;
   }
   if (stage.heliMesh) {
     const hm = stage.heliMesh;

@@ -54,6 +54,16 @@ export function craftRig(kind) {
   root.userData.kind = kind;
   const spin = freshSpin();
   root.userData.spin = spin;
+  // Rigs are built in Y-up convention (up = +Y, forward = +Z), but
+  // this world is Z-up. Rotate the root +90 deg about X once here
+  // (rig +Y -> world +Z, rig +Z -> world -Y); drawFrame then uses
+  // heading angle + PI/2 so the rig faces its direction of travel.
+  // The root MUST use Euler order 'ZYX': with the default 'XYZ'
+  // the matrix is Rx*Rz (Z applied first), which would roll the rig
+  // sideways instead of yawing it. 'ZYX' gives Rz*Rx, i.e. the
+  // X-flip first, then the heading yaw about world Z.
+  root.rotation.order = 'ZYX';
+  root.rotation.x = Math.PI / 2;
 
   if (kind === 'prop') {
     const white = skin(0xf4f7fa, 0.35, 0.35);
@@ -210,7 +220,7 @@ export function animateRig(rig, dt, elapsed, speed) {
   if (!spin) return;
   for (const p of spin.props) p.rotation.z += dt * 34;
   for (const f of spin.fans) f.rotation.z += dt * 26;
-  for (const w of spin.wheels) w.rotation.y += dt * (speed || 4);
+  for (const w of spin.wheels) w.rotation.x += dt * (speed || 4);
   spin.beacons.forEach((b, i) => {
     const pulse = Math.sin(elapsed * 13 + i * Math.PI);
     if (b.material && b.material.emissiveIntensity !== undefined) {
