@@ -10,6 +10,9 @@ import {
 
 let nextCarId = 1;
 
+/** Sim speed (units/s) as km/h for the speedometer. */
+export function carSpeedKmh(car) { return Math.abs(car.speed) * 0.36; }
+
 export function makeCar(random, x, y, angle, kind, color) {
   return {
     id: nextCarId, x, y, angle, speed: 0, kind, // 'traffic' | 'police' | 'player'

@@ -36,7 +36,7 @@ export function shoot(state, tx, ty, random) {
   state.bullets.push({
     x: p.x + Math.cos(angle) * 20, y: p.y + Math.sin(angle) * 20,
     vx: Math.cos(angle) * PLAYER.bulletSpeed, vy: Math.sin(angle) * PLAYER.bulletSpeed,
-    travelled: 0, angle,
+    travelled: 0, angle, z: 30,
   });
   spawnParticles(state, p.x + Math.cos(angle) * 24, p.y + Math.sin(angle) * 24, 4, '#ffd23f', 160);
   scarePedestrians(state, p.x, p.y, 320);

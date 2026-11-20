@@ -1,13 +1,13 @@
 // NEON BAY — 3D renderer (Three.js r158, low-poly, golden hour). The sim
 // stays top-down 2D; this turns it into a real 3D city (instanced
-// buildings/cars/people, chase/TPS camera, heli, rain, particles) with a
-// 2D HUD overlay. No assets, no network. Sim (x,y) -> three (x,0,y);
-// a mesh built forward along +Z gets rotation.y = PI/2 - angle.
+// buildings/cars/people, chase/TPS camera, heli, rain, particles), 2D HUD
+// overlay. No assets, no network. Sim (x,y) -> three (x,0,y).
 import { CITY, FONT, PALETTE, VIEW } from './config.js';
 import { drawCrosshair, drawHud } from './hud.js';
 import { HL } from './patchkit.js';
 import { missionTarget } from './missions.js';
 import { roadCentresX, roadCentresY } from './world.js';
+import { carSpeedKmh } from './vehicles.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -573,7 +573,7 @@ export function createRenderer(canvas, hudCanvas) {
     const nb = Math.min(state.bullets.length, 32);
     for (let i = 0; i < nb; i += 1) {
       const b = state.bullets[i];
-      bPos[i * 3] = b.x; bPos[i * 3 + 1] = 30; bPos[i * 3 + 2] = b.y;
+      bPos[i * 3] = b.x; bPos[i * 3 + 1] = b.z || 30; bPos[i * 3 + 2] = b.y;
     }
     bGeo.setDrawRange(0, nb);
     bGeo.attributes.position.needsUpdate = true;
@@ -689,7 +689,7 @@ export function createRenderer(canvas, hudCanvas) {
       ], 'Press Space or click to start');
       return;
     }
-    const speedKmh = state.player.car ? Math.abs(state.player.car.speed) * 0.36 : null;
+    const speedKmh = state.player.car ? carSpeedKmh(state.player.car) : null;
     drawHud(hudCtx, state, speedKmh);
     if (screen === SCREEN_PLAY) drawCrosshair(hudCtx, state);
     if (screen === SCREEN_PAUSED) {

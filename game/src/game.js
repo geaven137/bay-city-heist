@@ -306,6 +306,7 @@ export function stepGame(game, dt, input, audio, harmless) {
     audio.setEngine(speed, 520);
     const anyCopNear = state.cars.some((c) => c.kind === 'police' && Math.hypot(c.x - (p.car ? p.car.x : p.x), c.y - (p.car ? p.car.y : p.y)) < 600);
     audio.setSiren(anyCopNear, state.time);
+    if (state.wanted >= 3 && state.time % 0.25 < dt) audio.rotor();
   }
 }
 

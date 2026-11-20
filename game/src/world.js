@@ -27,6 +27,9 @@ export function isOnRoad(x, y) {
     || Math.abs(y - nearestCentre(roadCentresY, y)) <= CITY.road / 2;
 }
 
+/** True when the point is on the southern beach strip. */
+export function isOnBeach(x, y) { return y >= CITY.beachY; }
+
 /** True when the point is near a crossing of two roads. */
 export function atIntersection(x, y, radius = 46) {
   return Math.abs(x - nearestCentre(roadCentresX, x)) <= radius

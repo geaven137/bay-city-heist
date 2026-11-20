@@ -119,6 +119,7 @@ export function createAudio() {
       if (on) sirenOsc.frequency.setTargetAtTime(Math.floor(time * 2) % 2 === 0 ? 700 : 950, ctx.currentTime, 0.05);
     },
     gunshot() { noiseBurst(0.14, 0.5); },
+    rotor() { noiseBurst(0.08, 0.12); blip(55, 0.1, 'sawtooth', 0.12); },
     punch() { noiseBurst(0.06, 0.25); },
     crash() { noiseBurst(0.25, 0.6); blip(70, 0.2, 'sine', 0.4); },
     pickup() { blip(880, 0.12, 'sine', 0.25); window.setTimeout(() => blip(1318, 0.18, 'sine', 0.25), 90); },

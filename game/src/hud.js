@@ -1,6 +1,5 @@
 // NEON BAY — the dense HUD (cash + rank, wanted, mission + compass,
-// dispatch, weapon slots, radio, dialogue portraits, minimap) as a 2D
-// overlay over the 3D world, readable when shrunk to a contact sheet.
+// dispatch, weapons, radio, dialogue, minimap) as a 2D overlay.
 import { CITY, FONT, MISSIONS, PALETTE, VIEW } from './config.js';
 import { HL } from './patchkit.js';
 import { missionTarget } from './missions.js';
