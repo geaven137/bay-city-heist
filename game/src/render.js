@@ -1,13 +1,13 @@
-// NEON BAY — drawing only: the world state and the current screen in,
-// pixels out. Third-person view: a raycast city (walls as textured
-// vertical strips, floor-cast streets, billboard sprites), the player
-// seen from behind at the bottom of the frame, over-the-shoulder when
-// aiming. The simulation stays top-down 2D; only the camera changed.
-// Flat procedural shapes only, no assets, no network.
+// NEON BAY — 3D renderer (Three.js r158, low-poly, golden hour). The sim
+// stays top-down 2D; this turns it into a real 3D city (instanced
+// buildings/cars/people, chase/TPS camera, heli, rain, particles) with a
+// 2D HUD overlay. No assets, no network. Sim (x,y) -> three (x,0,y);
+// a mesh built forward along +Z gets rotation.y = PI/2 - angle.
 import { CITY, FONT, PALETTE, VIEW } from './config.js';
 import { drawCrosshair, drawHud } from './hud.js';
+import { HL } from './patchkit.js';
 import { missionTarget } from './missions.js';
-import { isOnRoad, nearestCentre, roadCentresX, roadCentresY } from './world.js';
+import { roadCentresX, roadCentresY } from './world.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -15,854 +15,668 @@ export const SCREEN_PAUSED = 'paused';
 export const SCREEN_OVER = 'over';
 export const SCREEN_BUSTED = 'busted';
 
-let RW = 640;
-let RH = 360;
-let COLS = 160; // wall columns across the scene
-const CELL = 32; // wall-grid cell, world units
-const EYE = 30; // camera height above the street, world units
-const WALL = 2.4; // building height multiplier: top-down heights read short
-const FOG = '13,15,26'; // dusk fog colour (rgb triplet for rgba strings)
+let THREE = null; // set in createRenderer from window.THREE (the vendored UMD build)
+const P2 = Math.PI / 2;
+const rotY = (th) => P2 - th;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
 
-const PANEL = { width: 640, top: 150, line: 32, bottom: 76 };
-
-/** Darken (f < 1) or lighten (f > 1) a #rrggbb colour. */
 function shade(hex, f) {
   const n = parseInt(hex.slice(1), 16);
-  const r = Math.max(0, Math.min(255, Math.round(((n >> 16) & 255) * f)));
-  const g = Math.max(0, Math.min(255, Math.round(((n >> 8) & 255) * f)));
-  const b = Math.max(0, Math.min(255, Math.round((n & 255) * f)));
+  const r = clamp(Math.round(((n >> 16) & 255) * f), 0, 255);
+  const g = clamp(Math.round(((n >> 8) & 255) * f), 0, 255);
+  const b = clamp(Math.round((n & 255) * f), 0, 255);
   return `rgb(${r},${g},${b})`;
 }
-
-/** Deterministic 0..1 hash from two numbers (no random draws). */
+function hexNum(hex) { return parseInt(hex.slice(1), 16); }
 function hash2(a, b) {
   const h = (a * 374761393 + b * 668265263) % 1000;
   return ((h % 1000) + 1000) % 1000 / 1000;
 }
-
 function wrapAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
 }
 
-export function createRenderer(canvas) {
-  const context = canvas.getContext('2d');
+/** A canvas texture from a 2D painter. */
+function makeTex(w, h, paint) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  paint(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+/** Soft round glow (sun, lamps, smoke, particle dots). */
+function glowTex(inner, outer) {
+  return makeTex(128, 128, (g) => {
+    const v = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    v.addColorStop(0, inner); v.addColorStop(1, outer);
+    g.fillStyle = v; g.fillRect(0, 0, 128, 128);
+  });
+}
+
+/** The ground: one plane, one procedural texture (roads, zebra, beach, sea edge). */
+function groundTexture() {
+  const S = 2048 / CITY.width; // px per world unit
+  return makeTex(2048, 1536, (g) => {
+    g.fillStyle = PALETTE.grass; g.fillRect(0, 0, 2048, 1536);
+    g.fillStyle = PALETTE.park;
+    for (let i = 0; i < 40; i += 1) {
+      g.fillRect(hash2(i, 3) * 1900 + 40, hash2(i, 7) * 1300 + 40, 120, 90);
+    }
+    g.fillStyle = PALETTE.sand; g.fillRect(0, CITY.beachY * S, 2048, 60 * S);
+    g.fillStyle = PALETTE.water; g.fillRect(0, (CITY.beachY + 60) * S, 2048, 1536 - (CITY.beachY + 60) * S);
+    g.strokeStyle = 'rgba(255,255,255,0.25)'; g.lineWidth = 2;
+    for (let x = 0; x < 2048; x += 90) {
+      g.beginPath(); g.moveTo(x, (CITY.beachY + 90) * S); g.lineTo(x + 40, (CITY.beachY + 90) * S); g.stroke();
+    }
+    for (const cx of roadCentresX) {
+      g.fillStyle = PALETTE.sidewalk; g.fillRect(cx * S - (CITY.road / 2 + 8) * S, 0, (CITY.road + 16) * S, 1536);
+      g.fillStyle = PALETTE.asphalt; g.fillRect(cx * S - (CITY.road / 2) * S, 0, CITY.road * S, 1536);
+    }
+    for (const cy of roadCentresY) {
+      g.fillStyle = PALETTE.sidewalk; g.fillRect(0, cy * S - (CITY.road / 2 + 8) * S, 2048, (CITY.road + 16) * S);
+      g.fillStyle = PALETTE.asphalt; g.fillRect(0, cy * S - (CITY.road / 2) * S, 2048, CITY.road * S);
+    }
+    g.fillStyle = PALETTE.roadLine;
+    for (const cx of roadCentresX) for (let y = 0; y < 1536; y += 44) g.fillRect(cx * S - 2, y, 4, 22);
+    for (const cy of roadCentresY) for (let x = 0; x < 2048; x += 44) g.fillRect(x, cy * S - 2, 22, 4);
+    g.fillStyle = 'rgba(232,236,242,0.85)';
+    for (const cx of roadCentresX) for (const cy of roadCentresY) {
+      for (let k = -3; k <= 3; k += 1) {
+        g.fillRect(cx * S - 26 + k * 8, cy * S - 34, 4, 68);
+        g.fillRect(cx * S - 34, cy * S - 26 + k * 8, 68, 4);
+      }
+    }
+  });
+}
+
+/** Building facades: pale base, dark windows, some lit at dusk. */
+function facadeTexture() {
+  return makeTex(128, 256, (g) => {
+    g.fillStyle = '#d9d4c8'; g.fillRect(0, 0, 128, 256);
+    for (let r = 0; r < 12; r += 1) for (let c = 0; c < 5; c += 1) {
+      g.fillStyle = hash2(r, c) < 0.35 ? '#ffd23f' : '#20242e';
+      g.fillRect(10 + c * 23, 12 + r * 20, 14, 12);
+    }
+  });
+}
+
+/** A neon sign (HOTEL, BAR, ...) as a glowing text plane. */
+function signTexture(word, color) {
+  return makeTex(256, 64, (g) => {
+    g.clearRect(0, 0, 256, 64);
+    g.font = '700 44px system-ui, sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.shadowColor = color; g.shadowBlur = 18;
+    g.fillStyle = color; g.fillText(word, 128, 34);
+    g.shadowBlur = 0; g.fillStyle = '#ffffff'; g.fillText(word, 128, 34);
+  });
+}
+
+export function createRenderer(canvas, hudCanvas) {
+  THREE = (typeof window !== 'undefined' && window.THREE) || globalThis.THREE || null;
+  if (!THREE) throw new Error('Three.js is required: load game/vendor/three.min.js before the module script.');
+  hudCanvas = hudCanvas || canvas;
+  const hudCtx = hudCanvas.getContext('2d');
   const view = { scale: 1, x: 0, y: 0 };
-  const scene = document.createElement('canvas');
-  scene.width = RW;
-  scene.height = RH;
-  const sctx = scene.getContext('2d');
-
-  let gridCity = null;
-  let grid = null;
-  let gridW = 0;
-  let gridH = 0;
-  function wallGrid(city) {
-    if (city === gridCity) return;
-    gridCity = city;
-    gridW = Math.ceil(CITY.width / CELL);
-    gridH = Math.ceil(CITY.height / CELL);
-    grid = new Uint16Array(gridW * gridH);
-    for (let i = 0; i < city.buildings.length; i += 1) {
-      const b = city.buildings[i];
-      const x0 = Math.max(0, Math.floor(b.x / CELL));
-      const x1 = Math.min(gridW - 1, Math.floor((b.x + b.w) / CELL));
-      const y0 = Math.max(0, Math.floor(b.y / CELL));
-      const y1 = Math.min(gridH - 1, Math.floor((b.y + b.h) / CELL));
-      for (let gy = y0; gy <= y1; gy += 1) {
-        for (let gx = x0; gx <= x1; gx += 1) grid[gy * gridW + gx] = i + 1;
-      }
-    }
-  }
-
-  const sprites = new Map();
-  function sprite(key, w, h, draw) {
-    if (!sprites.has(key)) {
-      const c = document.createElement('canvas');
-      c.width = w * 2;
-      c.height = h * 2;
-      const g = c.getContext('2d');
-      g.scale(2, 2);
-      draw(g, w, h);
-      sprites.set(key, c);
-    }
-    return sprites.get(key);
-  }
-
-  const wallTex = new Map();
-  function textureFor(b) {
-    const facade = b.facade ?? 0;
-    const lit = b.lit ?? 0.5;
-    const key = `${b.color}|${b.roof}|${b.neon ? 1 : 0}|${facade}|${Math.round(lit * 10)}`;
-    if (wallTex.has(key)) return wallTex.get(key);
-    const c = document.createElement('canvas');
-    c.width = 48;
-    c.height = 96;
-    const g = c.getContext('2d');
-    g.fillStyle = b.color;
-    g.fillRect(0, 0, 48, 96);
-    const sun = g.createLinearGradient(0, 0, 48, 0);
-    sun.addColorStop(0, 'rgba(255,190,120,0.14)');
-    sun.addColorStop(0.5, 'rgba(255,190,120,0)');
-    sun.addColorStop(1, 'rgba(0,0,0,0.20)');
-    g.fillStyle = sun;
-    g.fillRect(0, 0, 48, 96);
-    const litWin = (r, col) => hash2(b.x + r * 7, b.y + col * 13) < lit;
-    const win = (x, y, w, h, r, col) => {
-      g.fillStyle = litWin(r, col) ? 'rgba(255,214,120,0.9)' : 'rgba(20,26,44,0.85)';
-      g.fillRect(x, y, w, h);
+  // No real GL context (Node smoke test): build the scene graph and sync
+  // it, but skip the actual pixels. The game still runs and the HUD draws.
+  let renderer = null;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+  } catch (e) {
+    renderer = {
+      setPixelRatio() {}, setSize() {}, render() {}, dispose() {},
+      shadowMap: {}, toneMapping: 0, toneMappingExposure: 1,
     };
-    if (facade === 1) {
-      for (let r = 0; r < 4; r += 1) {
-        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 10 + r * 12, 9, 7, r, col);
-      }
-      g.fillStyle = 'rgba(255,214,120,0.9)';
-      g.fillRect(4, 62, 13, 14);
-      g.fillRect(18, 62, 13, 14);
-      g.fillRect(32, 62, 13, 14);
-      g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
-      g.fillRect(0, 58, 48, 4);
-    } else if (facade === 2) {
-      for (let col = 0; col < 3; col += 1) {
-        for (let r = 0; r < 5; r += 1) win(6 + col * 14, 10 + r * 15, 8, 11, r, col);
-      }
-    } else if (facade === 3) {
-      for (let r = 0; r < 4; r += 1) {
-        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 18, 9, 8, r, col);
-        g.fillStyle = 'rgba(0,0,0,0.28)';
-        g.fillRect(0, 22 + r * 18, 48, 2);
-        g.fillStyle = 'rgba(244,246,250,0.35)';
-        g.fillRect(0, 24 + r * 18, 48, 1);
-      }
-    } else {
-      for (let r = 0; r < 6; r += 1) {
-        for (let col = 0; col < 3; col += 1) win(5 + col * 14, 12 + r * 13, 9, 8, r, col);
-      }
-    }
-    g.fillStyle = 'rgba(16,20,30,0.9)';
-    g.fillRect(20, 84, 8, 12);
-    g.fillStyle = 'rgba(0,0,0,0.22)';
-    g.fillRect(0, 90, 48, 6);
-    if (b.neon) {
-      g.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
-      g.fillRect(0, 6, 48, 4);
-    }
-    g.fillStyle = b.roof;
-    g.fillRect(0, 0, 48, 5);
-    wallTex.set(key, c);
-    return c;
+  }
+  const headless = !renderer.getContext; // the stub has no getContext: no real GL here
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(0x3a2a4a, 500, 1600);
+  const camera = new THREE.PerspectiveCamera(66, VIEW.width / VIEW.height, 1, 3200);
+
+  const hemi = new THREE.HemisphereLight(0xffd9a0, 0x2a2a3a, 0.95);
+  scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xffb347, 1.7);
+  sun.position.set(-900, 420, 700);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -260; sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260; sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.near = 50; sun.shadow.camera.far = 2600;
+  sun.shadow.bias = -0.0004;
+  scene.add(sun); scene.add(sun.target);
+
+  const skyTex = makeTex(16, 512, (g) => {
+    const v = g.createLinearGradient(0, 0, 0, 512);
+    v.addColorStop(0, '#2a1e4a'); v.addColorStop(0.45, '#7a3a6e');
+    v.addColorStop(0.72, '#ff7a4a'); v.addColorStop(1, '#ffb347');
+    g.fillStyle = v; g.fillRect(0, 0, 16, 512);
+  });
+  scene.background = skyTex;
+  const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTex('rgba(255,220,150,1)', 'rgba(255,120,40,0)'), transparent: true, depthWrite: false,
+  }));
+  sunSprite.position.set(-1400, 260, 1200); sunSprite.scale.set(700, 700, 1);
+  scene.add(sunSprite);
+  const cloudTex = glowTex('rgba(255,200,220,0.55)', 'rgba(255,200,220,0)');
+  const clouds = [];
+  for (let i = 0; i < 8; i += 1) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, depthWrite: false, opacity: 0.7 }));
+    s.position.set(hash2(i, 1) * 3000 - 400, 260 + hash2(i, 2) * 120, hash2(i, 3) * 2400 - 200);
+    s.scale.set(500 + hash2(i, 4) * 400, 90 + hash2(i, 5) * 60, 1);
+    scene.add(s); clouds.push(s);
   }
 
-  function resize() {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    const width = Math.round(window.innerWidth * ratio);
-    const height = Math.round(window.innerHeight * ratio);
-    canvas.width = width;
-    canvas.height = height;
-    view.scale = Math.min(width / VIEW.width, height / VIEW.height);
-    view.x = (width - VIEW.width * view.scale) / 2;
-    view.y = (height - VIEW.height * view.scale) / 2;
-  }
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(CITY.width, CITY.height),
+    new THREE.MeshLambertMaterial({ map: groundTexture() }),
+  );
+  ground.rotation.x = -P2;
+  ground.position.set(CITY.width / 2, 0, CITY.height / 2);
+  ground.receiveShadow = true;
+  scene.add(ground);
+  const sea = new THREE.Mesh(
+    new THREE.PlaneGeometry(CITY.width + 600, 700),
+    new THREE.MeshLambertMaterial({ color: 0x1d4e6e }),
+  );
+  sea.rotation.x = -P2;
+  sea.position.set(CITY.width / 2, 0.4, CITY.height + 330);
+  scene.add(sea);
 
-  const fonts = new Map();
-  function text(value, x, y, size, color, align, bold) {
-    if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
-    context.font = (bold ? '700 ' : '') + fonts.get(size);
-    context.fillStyle = color;
-    context.textAlign = align;
-    context.textBaseline = 'alphabetic';
-    context.fillText(value, x, y);
-  }
+  let cityBuilt = null;
+  let bldgMesh = null, roofMesh = null;
+  const signMeshes = [];
+  const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+  const facadeTex = facadeTexture();
+  const bldgMat = new THREE.MeshLambertMaterial({ map: facadeTex });
+  const roofMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const tmpM = new THREE.Matrix4();
+  const tmpQ = new THREE.Quaternion();
+  const tmpV = new THREE.Vector3();
+  const tmpS = new THREE.Vector3();
+  const tmpC = new THREE.Color();
+  const tmpM2 = new THREE.Matrix4();
+  const tmpQ2 = new THREE.Quaternion();
 
-  /** Ground colour at a world point: water, sand, road, sidewalk, park, grass.
-   * The centre line is solid and only in the near field: dashes alias
-   * into wide yellow bands when the road runs diagonally across the view,
-   * and far away the floor samples are wider than any marking. The same
-   * near-field rule holds for the crosswalk zebra and the dashed edge
-   * lines; the curb band stays everywhere (it is wide enough to sample). */
-  function floorColor(city, wx, wy, near) {
-    if (wy >= CITY.beachY) return PALETTE.water;
-    if (wy >= CITY.beachY - 60) return PALETTE.sand;
-    const cx = nearestCentre(roadCentresX, wx);
-    const cy = nearestCentre(roadCentresY, wy);
-    const dx = Math.abs(wx - cx);
-    const dy = Math.abs(wy - cy);
-    const onH = dy <= CITY.road / 2; // on the east-west road
-    const onV = dx <= CITY.road / 2; // on the north-south road
-    if (onH || onV) {
-      if (near && dx < 46 && dy < 46) {
-        if (onH && Math.abs(wx - cx) < 20 && Math.floor(wx / 8) % 2 === 0) return '#d8dce6';
-        if (onV && Math.abs(wy - cy) < 20 && Math.floor(wy / 8) % 2 === 0) return '#d8dce6';
-      }
-      if (near && (dx < 2 || dy < 2)) return PALETTE.roadLine;
-      if (near) {
-        if (onH && dy > 24 && dy < 28 && Math.floor(wx / 22) % 2 === 0) return '#c8ccd4';
-        if (onV && dx > 24 && dx < 28 && Math.floor(wy / 22) % 2 === 0) return '#c8ccd4';
-      }
-      return PALETTE.asphalt;
-    }
-    if (dx <= CITY.road / 2 + 10 || dy <= CITY.road / 2 + 10) {
-      if (dx <= CITY.road / 2 + 4 || dy <= CITY.road / 2 + 4) return '#4a4f5c';
-      return PALETTE.sidewalk;
-    }
-    for (const park of city.parks) {
-      if (wx >= park.x && wx <= park.x + park.w && wy >= park.y && wy <= park.y + park.h) return PALETTE.park;
-    }
-    return PALETTE.grass;
-  }
-
-  function drawSky(camAngle, fov, horizon, time) {
-    const g = sctx.createLinearGradient(0, 0, 0, horizon);
-    g.addColorStop(0, '#160f38');
-    g.addColorStop(0.6, '#4a2158');
-    g.addColorStop(1, '#ff8a5c');
-    sctx.fillStyle = g;
-    sctx.fillRect(0, 0, RW, horizon + 1);
-    sctx.fillStyle = '#f4f6fa';
-    for (let i = 0; i < 42; i += 1) {
-      const sx = (i * 97 + 31) % RW;
-      const sy = (i * 53 + 11) % 110;
-      sctx.globalAlpha = 0.25 + ((i * 13) % 10) / 18;
-      sctx.fillRect(sx, sy, 2, 2);
-    }
-    sctx.globalAlpha = 1;
-    const tanHalf = Math.tan(fov / 2);
-    const sunA = wrapAngle(Math.PI * 0.75 - camAngle);
-    if (Math.abs(sunA) < fov / 2 + 0.25) {
-      const sunX = RW / 2 + (Math.tan(sunA) / tanHalf) * (RW / 2);
-      const sunY = horizon - 26;
-      const glow = sctx.createRadialGradient(sunX, sunY, 4, sunX, sunY, 90);
-      glow.addColorStop(0, 'rgba(255,190,120,0.75)');
-      glow.addColorStop(1, 'rgba(255,190,120,0)');
-      sctx.fillStyle = glow;
-      sctx.fillRect(sunX - 90, sunY - 90, 180, 180);
-      sctx.fillStyle = '#ffd9a0';
-      sctx.beginPath();
-      sctx.arc(sunX, sunY, 15, 0, Math.PI * 2);
-      sctx.fill();
-    }
-    const haze = sctx.createLinearGradient(0, horizon - 14, 0, horizon + 6);
-    haze.addColorStop(0, 'rgba(255,138,92,0)');
-    haze.addColorStop(1, 'rgba(255,138,92,0.35)');
-    sctx.fillStyle = haze;
-    sctx.fillRect(0, horizon - 14, RW, 20);
-  }
-
-  /** One DDA raycast; returns the hit building, distance and wall fraction. */
-  function castRay(cam, rx, ry) {
-    const rdx = rx / CELL;
-    const rdy = ry / CELL;
-    let mapX = Math.floor(cam.x / CELL);
-    let mapY = Math.floor(cam.y / CELL);
-    const dDX = Math.abs(rdx) < 1e-9 ? 1e9 : Math.abs(1 / rdx);
-    const dDY = Math.abs(rdy) < 1e-9 ? 1e9 : Math.abs(1 / rdy);
-    const stepX = rdx < 0 ? -1 : 1;
-    const stepY = rdy < 0 ? -1 : 1;
-    let sideX = rdx < 0 ? (cam.x / CELL - mapX) * dDX : (mapX + 1 - cam.x / CELL) * dDX;
-    let sideY = rdy < 0 ? (cam.y / CELL - mapY) * dDY : (mapY + 1 - cam.y / CELL) * dDY;
-    let side = 0;
-    let dist = 0;
-    for (let i = 0; i < 128; i += 1) {
-      if (sideX < sideY) { sideX += dDX; mapX += stepX; side = 0; dist = sideX - dDX; }
-      else { sideY += dDY; mapY += stepY; side = 1; dist = sideY - dDY; }
-      if (mapX < 0 || mapY < 0 || mapX >= gridW || mapY >= gridH) return null;
-      const hit = grid[mapY * gridW + mapX];
-      if (hit) {
-        const worldDist = dist * CELL;
-        const rayLen = Math.hypot(rx, ry);
-        const perp = worldDist * (rx * Math.cos(cam.angle) + ry * Math.sin(cam.angle)) / rayLen;
-        const along = side === 0
-          ? (cam.y + worldDist * ry / rayLen) / CELL
-          : (cam.x + worldDist * rx / rayLen) / CELL;
-        return { building: gridCity.buildings[hit - 1], perp, side, frac: along - Math.floor(along) };
-      }
-    }
-    return null;
-  }
-
-  function drawWalls(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg) {
-    const colW = RW / COLS;
-    for (let c = 0; c < COLS; c += 1) {
-      const camX = (2 * c) / COLS - 1;
-      const rx = dirX + planeX * camX;
-      const ry = dirY + planeY * camX;
-      const hit = castRay(cam, rx, ry);
-      if (!hit || hit.perp < 4) { zbuf[c] = 1e9; colBldg[c] = null; continue; }
-      zbuf[c] = hit.perp;
-      colBldg[c] = hit.building;
-      const b = hit.building;
-      const hWorld = b.height * WALL;
-      const y0 = horizon - ((hWorld - EYE) * proj) / hit.perp;
-      const y1 = horizon + (EYE * proj) / hit.perp;
-      const tex = textureFor(b);
-      const sx = Math.floor(hit.frac * tex.width);
-      sctx.drawImage(tex, sx, 0, 1, tex.height, c * colW, y0, colW + 0.5, y1 - y0);
-      const fog = Math.min(0.5, hit.perp / 950);
-      sctx.fillStyle = hit.side === 1 ? `rgba(${FOG},${(fog + 0.1).toFixed(3)})` : `rgba(${FOG},${fog.toFixed(3)})`;
-      sctx.fillRect(c * colW, y0, colW + 0.5, y1 - y0);
-    }
-  }
-
-  function drawFloor(state, cam, dirX, dirY, planeX, planeY, proj, horizon) {
-    sctx.fillStyle = PALETTE.grass;
-    sctx.fillRect(0, horizon, RW, RH - horizon);
-    const leftX = dirX - planeX;
-    const leftY = dirY - planeY;
-    const rightX = dirX + planeX;
-    const rightY = dirY + planeY;
-    const SAMPLES = 80;
-    const stepX = (rightX - leftX) / SAMPLES;
-    const stepY = (rightY - leftY) / SAMPLES;
-    const sw = RW / SAMPLES;
-    for (let y = horizon + 2; y < RH; y += 2) {
-      const p = y - horizon;
-      let rowDist = (EYE * proj) / p;
-      if (rowDist > 900) rowDist = 900;
-      let fx = cam.x + leftX * rowDist;
-      let fy = cam.y + leftY * rowDist;
-      const dx = rowDist * stepX;
-      const dy = rowDist * stepY;
-      for (let s = 0; s < SAMPLES; s += 1) {
-        sctx.fillStyle = floorColor(state.city, fx, fy, rowDist < 380);
-        sctx.fillRect(s * sw, y, sw + 0.5, 2);
-        fx += dx;
-        fy += dy;
-      }
-      const fog = Math.min(0.55, rowDist / 900) * 0.55;
-      if (fog > 0.02) {
-        sctx.fillStyle = `rgba(${FOG},${fog.toFixed(3)})`;
-        sctx.fillRect(0, y, RW, 2);
-      }
-    }
-  }
-
-  /** Project a world point to screen space; null when behind the camera
-   * or so close the sprite would be a giant blur (near-plane clip). */
-  function project(cam, dirX, dirY, planeX, planeY, proj, horizon, x, y, lift, worldH, aspect) {
-    const dx = x - cam.x;
-    const dy = y - cam.y;
-    const depth = dx * dirX + dy * dirY;
-    if (depth < 40) return null;
-    const lat = dx * planeX + dy * planeY;
-    const sx = (RW / 2) * (1 + lat / depth);
-    if (sx < -160 || sx > RW + 160) return null;
-    const bottom = horizon + ((EYE - lift) * proj) / depth;
-    const h = (worldH * proj) / depth;
-    return { sx, bottom, h, w: h * aspect, depth };
-  }
-
-  function drawSpriteEntry(entry, zbuf) {
-    const { canvas: img, sx, bottom, h, w, depth } = entry;
-    if (depth < 75 && (sx < RW * 0.2 || sx > RW * 0.8)) return;
-    const x0 = Math.round(sx - w / 2);
-    const x1 = Math.round(sx + w / 2);
-    const y0 = Math.round(bottom - h);
-    if (x1 < 0 || x0 >= RW || y0 >= RH) return;
-    let occluded = false;
-    for (let cx = Math.max(0, x0); cx < Math.min(RW, x1); cx += 1) {
-      if (depth >= zbuf[Math.floor((cx / RW) * COLS)]) { occluded = true; break; }
-    }
-    if (!occluded) {
-      sctx.drawImage(img, x0, y0, w, h);
-      return;
-    }
-    const srcW = Math.max(1, img.width / w);
-    for (let cx = Math.max(0, x0); cx < Math.min(RW, x1); cx += 1) {
-      if (depth < zbuf[Math.floor((cx / RW) * COLS)]) {
-        const srcX = ((cx - x0) / w) * img.width;
-        sctx.drawImage(img, srcX, 0, srcW, img.height, cx, y0, 1, h);
-      }
-    }
-  }
-
-  function carSprite(color, police) {
-    return sprite(`car-${police ? 'cop' : color}`, 96, 72, (g, w, h) => {
-      g.fillStyle = 'rgba(0,0,0,0.35)';
-      g.beginPath(); g.ellipse(w / 2, h - 6, 40, 6, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.roundRect(10, 56, 13, 10, 3); g.fill();
-      g.beginPath(); g.roundRect(73, 56, 13, 10, 3); g.fill();
-      g.fillStyle = 'rgba(200,205,215,0.5)';
-      g.fillRect(14, 59, 5, 4);
-      g.fillRect(77, 59, 5, 4);
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(20, 12, 56, 24, 6); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.22)';
-      g.fillRect(22, 13, 52, 3);
-      g.fillStyle = 'rgba(18,24,38,0.95)';
-      g.beginPath();
-      g.moveTo(26, 34); g.lineTo(70, 34); g.lineTo(66, 17); g.lineTo(30, 17);
-      g.closePath(); g.fill();
-      g.fillStyle = 'rgba(255,190,120,0.35)';
-      g.beginPath();
-      g.moveTo(34, 34); g.lineTo(44, 34); g.lineTo(38, 17); g.lineTo(32, 17);
-      g.closePath(); g.fill();
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(13, 24, 7, 5, 2); g.fill();
-      g.beginPath(); g.roundRect(76, 24, 7, 5, 2); g.fill();
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(6, 34, 84, 26, 6); g.fill();
-      g.fillStyle = shade(color, 0.55);
-      g.beginPath(); g.roundRect(6, 52, 84, 8, 4); g.fill();
-      g.fillStyle = 'rgba(0,0,0,0.25)';
-      g.fillRect(14, 40, 68, 1);
-      g.fillStyle = 'rgba(244,246,250,0.8)';
-      g.beginPath(); g.arc(48, 40, 2, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ff2e2e';
-      g.fillRect(8, 42, 26, 5);
-      g.fillRect(62, 42, 26, 5);
-      g.fillStyle = 'rgba(255,130,130,0.9)';
-      g.fillRect(10, 43, 22, 2);
-      g.fillRect(64, 43, 22, 2);
-      g.fillStyle = '#f4f6fa';
-      g.fillRect(30, 42, 4, 5);
-      g.fillRect(62, 42, 4, 5);
-      g.fillStyle = '#dfe3ea';
-      g.fillRect(41, 53, 14, 6);
-      g.fillStyle = 'rgba(0,0,0,0.5)';
-      g.fillRect(44, 55, 8, 1);
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.arc(80, 58, 2, 0, Math.PI * 2); g.fill();
-      if (police) {
-        g.fillStyle = '#ff2e2e';
-        g.fillRect(34, 8, 14, 4);
-        g.fillStyle = '#2e6bff';
-        g.fillRect(48, 8, 14, 4);
-        g.fillStyle = '#1a2a4a';
-        g.fillRect(6, 56, 84, 3);
+  function buildCity(city) {
+    if (cityBuilt === city) return;
+    if (bldgMesh) { scene.remove(bldgMesh); scene.remove(roofMesh); bldgMesh.dispose(); roofMesh.dispose(); }
+    for (const s of signMeshes) scene.remove(s);
+    signMeshes.length = 0;
+    cityBuilt = city;
+    const bs = city.buildings;
+    bldgMesh = new THREE.InstancedMesh(boxGeo, bldgMat, Math.max(1, bs.length));
+    roofMesh = new THREE.InstancedMesh(boxGeo, roofMat, Math.max(1, bs.length));
+    bldgMesh.castShadow = true; bldgMesh.receiveShadow = true;
+    roofMesh.castShadow = true;
+    bs.forEach((b, i) => {
+      tmpQ.identity();
+      tmpM.compose(tmpV.set(b.x + b.w / 2, b.height / 2, b.y + b.h / 2), tmpQ, tmpS.set(b.w, b.height, b.h));
+      bldgMesh.setMatrixAt(i, tmpM);
+      bldgMesh.setColorAt(i, tmpC.set(b.color));
+      tmpM.compose(tmpV.set(b.x + b.w / 2, b.height + 1.5, b.y + b.h / 2), tmpQ, tmpS.set(b.w + 4, 3, b.h + 4));
+      roofMesh.setMatrixAt(i, tmpM);
+      roofMesh.setColorAt(i, tmpC.set(b.roof));
+      if (b.sign) {
+        const sm = new THREE.Mesh(
+          new THREE.PlaneGeometry(Math.min(150, b.w * 0.8), 34),
+          new THREE.MeshBasicMaterial({ map: signTexture(b.sign, b.sign === 'HOTEL' ? '#ff2e88' : '#22d3ee'), transparent: true }),
+        );
+        sm.position.set(b.x + b.w / 2, b.height * 0.72, b.y + b.h + 2);
+        scene.add(sm); signMeshes.push(sm);
       }
     });
+    bldgMesh.instanceMatrix.needsUpdate = true;
+    roofMesh.instanceMatrix.needsUpdate = true;
+    if (bldgMesh.instanceColor) bldgMesh.instanceColor.needsUpdate = true;
+    if (roofMesh.instanceColor) roofMesh.instanceColor.needsUpdate = true;
+    scene.add(bldgMesh); scene.add(roofMesh);
   }
 
-  const SKINS = ['#e8b890', '#c98d64', '#8a5a3b', '#f0c8a0'];
-  const PANTS = ['#1e2a3a', '#3a3f4a', '#5a4632', '#2a4a3a'];
-  const HAIRS = ['#1e2a3a', '#3a2a1e', '#5a4632', '#14181f'];
-  function drawFigure(g, o) {
-    const skin = o.skin;
-    g.fillStyle = o.pants;
-    g.fillRect(17, 49, 6, 38);
-    g.fillRect(25, 49, 6, 38);
-    if (o.stripes) {
-      g.fillStyle = '#f1c40f';
-      g.fillRect(17, 66, 6, 3);
-      g.fillRect(25, 66, 6, 3);
+  let vegBuilt = null;
+  function buildVeg(city) {
+    if (vegBuilt === city) return;
+    vegBuilt = city;
+    const trunks = [];
+    const fronds = [];
+    const canopies = [];
+    for (const p of city.palms) { trunks.push({ x: p.x, y: p.y, h: 46, lean: p.lean }); fronds.push({ x: p.x, y: p.y, h: 46 }); }
+    for (const park of city.parks) for (const t of park.trees) {
+      trunks.push({ x: t.x, y: t.y, h: 26, lean: 0 });
+      canopies.push({ x: t.x, y: t.y, h: 26, r: t.r });
     }
-    g.fillStyle = '#14181f';
-    g.fillRect(15, 85, 9, 6);
-    g.fillRect(24, 85, 9, 6);
-    g.fillStyle = 'rgba(244,246,250,0.35)';
-    g.fillRect(15, 89, 9, 1);
-    g.fillRect(24, 89, 9, 1);
-    g.fillStyle = o.shirt;
-    g.beginPath(); g.roundRect(15, 19, 18, 28, 4); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.16)';
-    g.fillRect(15, 19, 3, 28);
-    g.fillStyle = 'rgba(0,0,0,0.20)';
-    g.fillRect(30, 19, 3, 28);
-    g.fillStyle = 'rgba(255,140,90,0.45)';
-    g.fillRect(32, 19, 1, 28);
-    if (o.stripes) {
-      g.fillStyle = '#f1c40f';
-      g.fillRect(15, 28, 18, 3);
-      g.fillRect(15, 38, 18, 3);
-    }
-    if (o.badge) {
-      g.fillStyle = '#ffd23f';
-      g.beginPath(); g.arc(28, 26, 2, 0, Math.PI * 2); g.fill();
-    }
-    g.fillStyle = o.belt || 'rgba(0,0,0,0.4)';
-    g.fillRect(15, 45, 18, 3);
-    if (o.buckle) {
-      g.fillStyle = '#ffd23f';
-      g.fillRect(22, 45, 4, 3);
-    }
-    const sleeveH = o.sleeve === 'short' ? 8 : 21;
-    g.fillStyle = o.shirt;
-    g.fillRect(11, 21, 5, sleeveH);
-    g.fillRect(32, 21, 5, sleeveH);
-    g.fillStyle = skin;
-    g.fillRect(11, 21 + sleeveH, 5, 42 - (21 + sleeveH));
-    g.fillRect(32, 21 + sleeveH, 5, 42 - (21 + sleeveH));
-    g.fillStyle = skin;
-    g.fillRect(21, 15, 6, 4);
-    g.beginPath(); g.arc(24, 10, 6.5, 0, Math.PI * 2); g.fill();
-    if (o.headwear === 'cap') {
-      g.fillStyle = o.capColor || '#1a2a4a';
-      g.beginPath(); g.arc(24, 9, 6.5, Math.PI, 0); g.fill();
-      g.fillRect(18, 8, 12, 2);
-      if (o.badge) {
-        g.fillStyle = '#ffd23f';
-        g.beginPath(); g.arc(24, 5, 1.5, 0, Math.PI * 2); g.fill();
+    const trunkMesh = new THREE.InstancedMesh(new THREE.CylinderGeometry(2.5, 4, 1, 6), new THREE.MeshLambertMaterial({ color: 0x7a5a3a }), Math.max(1, trunks.length));
+    const frondMesh = new THREE.InstancedMesh(new THREE.ConeGeometry(20, 26, 6), new THREE.MeshLambertMaterial({ color: 0x2e8b57 }), Math.max(1, fronds.length));
+    const canopyMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0x3a7a4a }), Math.max(1, canopies.length));
+    trunkMesh.castShadow = true;
+    trunks.forEach((t, i) => {
+      tmpQ.setFromAxisAngle(tmpV.set(0, 0, 1), t.lean * 0.12);
+      tmpM.compose(new THREE.Vector3(t.x, t.h / 2, t.y), tmpQ, new THREE.Vector3(1, t.h, 1));
+      trunkMesh.setMatrixAt(i, tmpM);
+    });
+    fronds.forEach((t, i) => {
+      tmpQ.identity();
+      tmpM.compose(new THREE.Vector3(t.x, t.h + 10, t.y), tmpQ, new THREE.Vector3(1, 1, 1));
+      frondMesh.setMatrixAt(i, tmpM);
+    });
+    canopies.forEach((t, i) => {
+      tmpQ.identity();
+      tmpM.compose(new THREE.Vector3(t.x, t.h + 8, t.y), tmpQ, new THREE.Vector3(t.r, t.r * 0.9, t.r));
+      canopyMesh.setMatrixAt(i, tmpM);
+    });
+    trunkMesh.instanceMatrix.needsUpdate = true;
+    frondMesh.instanceMatrix.needsUpdate = true;
+    canopyMesh.instanceMatrix.needsUpdate = true;
+    scene.add(trunkMesh); scene.add(frondMesh); scene.add(canopyMesh);
+  }
+
+  let lampBuilt = null;
+  function buildLamps(city) {
+    if (lampBuilt === city) return;
+    lampBuilt = city;
+    const n = city.lamps.length;
+    const pole = new THREE.InstancedMesh(new THREE.CylinderGeometry(1.2, 1.6, 26, 5), new THREE.MeshLambertMaterial({ color: 0x2a2f3a }), n);
+    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(3, 6, 5), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }), n);
+    city.lamps.forEach((l, i) => {
+      tmpQ.identity();
+      tmpM.compose(new THREE.Vector3(l.x, 13, l.y), tmpQ, new THREE.Vector3(1, 1, 1));
+      pole.setMatrixAt(i, tmpM);
+      tmpM.compose(new THREE.Vector3(l.x, 26, l.y), tmpQ, new THREE.Vector3(1, 1, 1));
+      head.setMatrixAt(i, tmpM);
+    });
+    pole.instanceMatrix.needsUpdate = true;
+    head.instanceMatrix.needsUpdate = true;
+    scene.add(pole); scene.add(head);
+  }
+
+  const MAXCARS = 32;
+  const carBody = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXCARS);
+  const carCabin = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x1a2028 }), MAXCARS);
+  const wheelGeo = new THREE.CylinderGeometry(7, 7, 5, 10);
+  wheelGeo.rotateZ(P2); // axle along X
+  const carWheel = new THREE.InstancedMesh(wheelGeo, new THREE.MeshLambertMaterial({ color: 0x14161a }), MAXCARS * 4);
+  const carHead = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xfff2cc }), MAXCARS * 2);
+  const carTail = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xff2a2a }), MAXCARS * 2);
+  const carBar = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), 8);
+  const carStripe = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0x1a2a4a }), 8);
+  carBody.castShadow = true; carCabin.castShadow = true;
+  scene.add(carBody); scene.add(carCabin); scene.add(carWheel);
+  scene.add(carHead); scene.add(carTail); scene.add(carBar); scene.add(carStripe);
+  const carDark = new THREE.Color();
+  function syncCars(state, dt, time) {
+    const cars = state.cars;
+    const n = Math.min(cars.length, MAXCARS);
+    let wi = 0, hi = 0, bi = 0, si = 0;
+    for (let i = 0; i < n; i += 1) {
+      const c = cars[i];
+      const fwd = { x: Math.cos(c.angle), y: Math.sin(c.angle) };
+      const rgt = { x: -fwd.y, y: fwd.x };
+      const turn = ((c.angle - (c._pa ?? c.angle) + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      c._pa = c.angle;
+      const roll = clamp(-turn * 2.2, -0.09, 0.09);
+      c._spin = (c._spin || 0) + (c.speed * dt) / 7;
+      tmpQ.setFromEuler(new THREE.Euler(0, rotY(c.angle), roll, 'YXZ'));
+      tmpM.compose(tmpV.set(c.x, 8, c.y), tmpQ, tmpS.set(26, 12, 54));
+      carBody.setMatrixAt(i, tmpM);
+      carDark.set(c.color);
+      if (c.wrecked) carDark.multiplyScalar(0.35);
+      carBody.setColorAt(i, carDark);
+      tmpM.compose(tmpV.set(c.x - fwd.x * 4, 18, c.y - fwd.y * 4), tmpQ, tmpS.set(22, 10, 28));
+      carCabin.setMatrixAt(i, tmpM);
+      tmpQ2.setFromEuler(_e.set(0, rotY(c.angle), roll, 'YXZ'));
+      for (const f of [18, -18]) for (const s of [11, -11]) {
+        const wx = c.x + fwd.x * f + rgt.x * s;
+        const wy = c.y + fwd.y * f + rgt.y * s;
+        _q.setFromEuler(_e.set(c._spin, 0, 0));
+        tmpQ.copy(tmpQ2).multiply(_q);
+        tmpM.compose(tmpV.set(wx, 7, wy), tmpQ, tmpS.set(1, 1, 1));
+        carWheel.setMatrixAt(wi, tmpM);
+        wi += 1;
       }
-    } else if (o.headwear === 'helmet') {
-      g.fillStyle = '#f1c40f';
-      g.beginPath(); g.arc(24, 9, 7, Math.PI, 0); g.fill();
-      g.fillRect(16, 8, 16, 2);
-      g.fillStyle = 'rgba(0,0,0,0.25)';
-      g.fillRect(22, 2, 4, 2);
-    } else {
-      g.fillStyle = o.hair || '#1e2a3a';
-      g.beginPath(); g.arc(24, 8, 6.5, Math.PI, 0); g.fill();
-    }
-  }
-
-  function pedSprite(color, kind) {
-    const h = (color.charCodeAt(1) * 7 + color.length * 13) % 4;
-    if (kind === 'police') {
-      return sprite('ped-police', 48, 96, (g) => drawFigure(g, {
-        skin: SKINS[h], shirt: '#1a2a4a', pants: '#141c2e', sleeve: 'long',
-        headwear: 'cap', capColor: '#1a2a4a', belt: '#0e1420', buckle: true, badge: true,
-      }));
-    }
-    if (kind === 'fire') {
-      return sprite('ped-fire', 48, 96, (g) => drawFigure(g, {
-        skin: SKINS[h], shirt: '#b03a2e', pants: '#3a2a22', sleeve: 'long',
-        headwear: 'helmet', belt: '#7a241c', stripes: true,
-      }));
-    }
-    return sprite(`ped-${color}`, 48, 96, (g) => drawFigure(g, {
-      skin: SKINS[h], shirt: color, pants: PANTS[h], sleeve: h === 1 ? 'short' : 'long',
-      headwear: h === 2 ? 'cap' : 'hair', capColor: color, hair: HAIRS[h],
-    }));
-  }
-
-  function lampSprite() {
-    return sprite('lamp', 24, 80, (g, w, h) => {
-      g.strokeStyle = '#2a2f3a';
-      g.lineWidth = 3;
-      g.beginPath(); g.moveTo(12, 78); g.lineTo(12, 12); g.stroke();
-      g.lineWidth = 2;
-      g.beginPath(); g.moveTo(12, 12); g.lineTo(20, 8); g.stroke();
-      const glow = g.createRadialGradient(21, 8, 1, 21, 8, 10);
-      glow.addColorStop(0, 'rgba(255,214,120,0.95)');
-      glow.addColorStop(1, 'rgba(255,214,120,0)');
-      g.fillStyle = glow;
-      g.beginPath(); g.arc(21, 8, 10, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ffd678';
-      g.beginPath(); g.arc(21, 8, 3, 0, Math.PI * 2); g.fill();
-    });
-  }
-
-  function palmSprite() {
-    return sprite('palm', 64, 96, (g, w, h) => {
-      g.strokeStyle = '#6b4a2f';
-      g.lineWidth = 5;
-      g.beginPath(); g.moveTo(32, 94); g.lineTo(29, 58); g.lineTo(34, 26); g.stroke();
-      g.fillStyle = '#1f7a37';
-      for (let f = 0; f < 6; f += 1) {
-        const a = (f / 6) * Math.PI * 2 - 0.6;
-        g.beginPath();
-        g.ellipse(34 + Math.cos(a) * 18, 26 + Math.sin(a) * 10, 20, 6, a, 0, Math.PI * 2);
-        g.fill();
+      for (const s of [8, -8]) {
+        tmpQ.setFromEuler(new THREE.Euler(0, rotY(c.angle), 0, 'YXZ'));
+        tmpM.compose(tmpV.set(c.x + fwd.x * 27 + rgt.x * s, 9, c.y + fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
+        carHead.setMatrixAt(hi, tmpM);
+        tmpM.compose(tmpV.set(c.x - fwd.x * 27 + rgt.x * s, 9, c.y - fwd.y * 27 + rgt.y * s), tmpQ, tmpS.set(6, 3, 2));
+        carTail.setMatrixAt(hi, tmpM);
+        hi += 1;
       }
-    });
-  }
-
-  function treeSprite() {
-    return sprite('tree', 64, 64, (g, w, h) => {
-      g.fillStyle = '#5a4028';
-      g.fillRect(28, 40, 8, 22);
-      g.fillStyle = '#2a7a3a';
-      g.beginPath(); g.arc(32, 26, 20, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#3f9a4f';
-      g.beginPath(); g.arc(24, 20, 12, 0, Math.PI * 2); g.fill();
-    });
-  }
-
-  function markerSprite() {
-    return sprite('marker', 48, 48, (g, w, h) => {
-      g.fillStyle = 'rgba(255,210,63,0.35)';
-      g.beginPath(); g.arc(24, 24, 20, 0, Math.PI * 2); g.fill();
-      g.fillStyle = PALETTE.neonYellow;
-      g.save();
-      g.translate(24, 24);
-      g.rotate(Math.PI / 4);
-      g.fillRect(-10, -10, 20, 20);
-      g.restore();
-    });
-  }
-
-  function playerSprite(aiming) {
-    return sprite(`player-${aiming ? 'aim' : 'walk'}`, 96, 128, (g, w, h) => {
-      g.fillStyle = PALETTE.playerPants;
-      g.fillRect(37, 74, 10, 44);
-      g.fillRect(49, 74, 10, 44);
-      g.fillStyle = '#14181f';
-      g.fillRect(35, 116, 13, 8);
-      g.fillRect(48, 116, 13, 8);
-      g.fillStyle = 'rgba(244,246,250,0.35)';
-      g.fillRect(35, 122, 13, 2);
-      g.fillRect(48, 122, 13, 2);
-      g.fillStyle = PALETTE.player;
-      g.beginPath(); g.roundRect(30, 27, 36, 42, 8); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.18)';
-      g.fillRect(30, 27, 4, 42);
-      g.fillStyle = 'rgba(0,0,0,0.20)';
-      g.fillRect(62, 27, 4, 42);
-      g.fillStyle = 'rgba(255,140,90,0.5)';
-      g.fillRect(65, 27, 1, 42);
-      g.fillStyle = 'rgba(0,0,0,0.22)';
-      g.fillRect(47, 30, 2, 36);
-      g.fillStyle = shade(PALETTE.player, 0.7);
-      g.fillRect(42, 25, 12, 6);
-      g.fillStyle = '#14181f';
-      g.fillRect(30, 67, 36, 4);
-      g.fillStyle = PALETTE.player;
-      if (aiming) {
-        g.fillRect(26, 30, 8, 34);
-        g.fillRect(62, 14, 8, 20);
-        g.fillStyle = '#e8b890';
-        g.fillRect(26, 62, 8, 7);
-        g.fillRect(62, 10, 8, 6);
-        g.save();
-        g.translate(66, 12);
-        g.rotate(-Math.PI / 4);
-        g.fillStyle = '#22262e';
-        g.fillRect(0, -2, 14, 4);
-        g.fillStyle = '#ffd23f';
-        g.fillRect(11, -2, 3, 4);
-        g.restore();
-      } else {
-        g.fillRect(26, 30, 8, 34);
-        g.fillRect(62, 30, 8, 34);
-        g.fillStyle = '#e8b890';
-        g.fillRect(26, 62, 8, 7);
-        g.fillRect(62, 62, 8, 7);
+      if (c.kind === 'police' && bi < 8) {
+        tmpM.compose(tmpV.set(c.x, 26, c.y), tmpQ, tmpS.set(16, 4, 8));
+        carBar.setMatrixAt(bi, tmpM);
+        carBar.setColorAt(bi, tmpC.set(((Math.floor(time * 3) + c.id) % 2) ? 0xff2a2a : 0x2a5aff));
+        tmpM.compose(tmpV.set(c.x, 10, c.y), tmpQ, tmpS.set(27, 3, 55));
+        carStripe.setMatrixAt(si, tmpM);
+        si += 1; bi += 1;
       }
-      g.fillStyle = '#e8b890';
-      g.fillRect(44, 23, 8, 5);
-      g.beginPath(); g.arc(48, 15, 9, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.arc(48, 13, 9, Math.PI, 0); g.fill();
-      g.fillRect(39, 13, 18, 4);
-    });
+    }
+    carBody.count = n; carCabin.count = n; carWheel.count = wi;
+    carHead.count = hi; carTail.count = hi; carBar.count = bi; carStripe.count = si;
+    carBody.instanceMatrix.needsUpdate = true;
+    carCabin.instanceMatrix.needsUpdate = true;
+    carWheel.instanceMatrix.needsUpdate = true;
+    carHead.instanceMatrix.needsUpdate = true;
+    carTail.instanceMatrix.needsUpdate = true;
+    carBar.instanceMatrix.needsUpdate = true;
+    carStripe.instanceMatrix.needsUpdate = true;
+    if (carBody.instanceColor) carBody.instanceColor.needsUpdate = true;
+    if (carBar.instanceColor) carBar.instanceColor.needsUpdate = true;
   }
 
-  function playerCarSprite(color) {
-    return sprite(`rear-${color}`, 160, 110, (g, w, h) => {
-      g.fillStyle = 'rgba(0,0,0,0.4)';
-      g.beginPath(); g.ellipse(w / 2, h - 6, 72, 10, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.roundRect(16, 88, 24, 16, 4); g.fill();
-      g.beginPath(); g.roundRect(120, 88, 24, 16, 4); g.fill();
-      g.fillStyle = 'rgba(200,205,215,0.55)';
-      g.fillRect(22, 92, 12, 8);
-      g.fillRect(126, 92, 12, 8);
-      g.fillStyle = '#14181f';
-      g.fillRect(25, 95, 6, 2);
-      g.fillRect(129, 95, 6, 2);
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(44, 16, 72, 14, 7); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.25)';
-      g.fillRect(46, 17, 68, 3);
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.moveTo(76, 16); g.lineTo(84, 16); g.lineTo(80, 8); g.closePath(); g.fill();
-      g.fillStyle = 'rgba(18,24,38,0.95)';
-      g.beginPath();
-      g.moveTo(48, 54); g.lineTo(112, 54); g.lineTo(104, 28); g.lineTo(56, 28);
-      g.closePath(); g.fill();
-      g.fillStyle = 'rgba(255,190,120,0.4)';
-      g.beginPath();
-      g.moveTo(60, 54); g.lineTo(74, 54); g.lineTo(66, 28); g.lineTo(58, 28);
-      g.closePath(); g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.18)';
-      g.beginPath();
-      g.moveTo(78, 54); g.lineTo(84, 54); g.lineTo(80, 28); g.lineTo(76, 28);
-      g.closePath(); g.fill();
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(30, 36, 12, 8, 3); g.fill();
-      g.beginPath(); g.roundRect(118, 36, 12, 8, 3); g.fill();
-      g.fillStyle = 'rgba(0,0,0,0.3)';
-      g.fillRect(30, 36, 12, 2);
-      g.fillRect(118, 36, 12, 2);
-      g.fillStyle = color;
-      g.beginPath(); g.roundRect(12, 56, 136, 40, 9); g.fill();
-      g.fillStyle = shade(color, 0.55);
-      g.beginPath(); g.roundRect(12, 86, 136, 10, 5); g.fill();
-      g.fillStyle = 'rgba(255,190,120,0.10)';
-      g.fillRect(12, 56, 10, 40);
-      g.fillStyle = 'rgba(0,0,0,0.16)';
-      g.fillRect(138, 56, 10, 40);
-      g.fillStyle = 'rgba(0,0,0,0.28)';
-      g.fillRect(22, 64, 116, 1);
-      g.fillStyle = 'rgba(244,246,250,0.85)';
-      g.beginPath(); g.arc(80, 64, 3, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#ff2e2e';
-      g.fillRect(14, 66, 38, 6);
-      g.fillRect(108, 66, 38, 6);
-      g.fillStyle = 'rgba(255,130,130,0.9)';
-      g.fillRect(16, 67, 34, 2);
-      g.fillRect(110, 67, 34, 2);
-      g.fillStyle = '#f4f6fa';
-      g.fillRect(48, 66, 4, 6);
-      g.fillRect(108, 66, 4, 6);
-      g.fillStyle = '#dfe3ea';
-      g.fillRect(66, 76, 28, 10);
-      g.fillStyle = 'rgba(0,0,0,0.55)';
-      g.fillRect(70, 79, 20, 2);
-      g.fillRect(70, 82, 14, 1);
-      g.fillStyle = '#14181f';
-      g.beginPath(); g.arc(134, 92, 3, 0, Math.PI * 2); g.fill();
-    });
+  const MAXPEDS = 32;
+  const chHead = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chHair = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chTorso = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chArmL = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chArmR = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chLegL = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chLegR = new THREE.InstancedMesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xffffff }), MAXPEDS);
+  const chGun = new THREE.InstancedMesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x1a1a1a }), 1);
+  chHead.castShadow = true; chTorso.castShadow = true;
+  scene.add(chHead); scene.add(chHair); scene.add(chTorso);
+  scene.add(chArmL); scene.add(chArmR); scene.add(chLegL); scene.add(chLegR); scene.add(chGun);
+  const skinC = new THREE.Color(0xc98a5a);
+  const skin2 = new THREE.Color(0x8a5a3a);
+  const skin3 = new THREE.Color(0xe8b88a);
+  const _e = new THREE.Euler();
+  const _q = new THREE.Quaternion();
+  const _v = new THREE.Vector3();
+  const _s = new THREE.Vector3();
+  /** Compose one body part: root at (x, y, z) with yaw, then local offset + rotation. */
+  function part(mesh, idx, x, y, z, yaw, lie, ox, oy, oz, rx, sx, sy, sz, color) {
+    _q.setFromEuler(_e.set(lie ? -P2 : 0, yaw, 0, 'YXZ'));
+    _v.set(x, y, z);
+    tmpM.compose(_v, _q, _s.set(1, 1, 1));
+    tmpM2.compose(new THREE.Vector3(ox, oy, oz), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), new THREE.Vector3(sx, sy, sz));
+    tmpM.multiply(tmpM2);
+    mesh.setMatrixAt(idx, tmpM);
+    if (color) mesh.setColorAt(idx, color);
   }
-
-  function drawSprites(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, time) {
-    const entries = [];
+  function syncChars(state, dt, time) {
+    const list = [];
     const p = state.player;
-    for (const car of state.cars) {
-      if (car.kind === 'player') continue;
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, car.x, car.y, 0, 46, 1.33);
-      if (e) entries.push({ ...e, canvas: carSprite(car.color, car.kind === 'police') });
-    }
-    for (const ped of state.peds) {
-      if (ped.down) continue;
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, ped.x, ped.y, 0, 34, 0.35);
-      if (e) entries.push({ ...e, canvas: pedSprite(ped.color, ped.kind) });
-    }
-    for (const lamp of state.city.lamps || []) {
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, lamp.x, lamp.y, 0, 70, 0.3);
-      if (e) entries.push({ ...e, canvas: lampSprite() });
-    }
-    for (const palm of state.city.palms) {
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, palm.x, palm.y, 0, 90, 0.67);
-      if (e) entries.push({ ...e, canvas: palmSprite() });
-    }
-    for (const park of state.city.parks) {
-      for (const t of park.trees) {
-        const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, t.x, t.y, 0, 60, 1);
-        if (e) entries.push({ ...e, canvas: treeSprite() });
+    if (p.onFoot) list.push({ x: p.x, y: p.y, angle: p.angle, kind: 'player', down: false, moving: p.moving, run: p.run, aiming: p.aiming });
+    for (const ped of state.peds) list.push(ped);
+    const n = Math.min(list.length, MAXPEDS);
+    let gunOn = false;
+    for (let i = 0; i < n; i += 1) {
+      const ch = list[i];
+      const isPlayer = ch.kind === 'player';
+      const down = !!ch.down;
+      const speed = ch.mode === 'flee' ? 14 : (isPlayer ? (ch.run ? 12 : 8) : 7);
+      ch._ph = (ch._ph || 0) + (ch.moving === false ? 0 : dt * speed);
+      const sw = Math.sin(ch._ph) * 0.5;
+      const yaw = rotY(ch.angle);
+      const rootY = down ? 7 : 0;
+      const shirt = isPlayer ? tmpC.set(PALETTE.player) : tmpC.set(ch.color);
+      const pants = isPlayer ? tmpC.set(PALETTE.playerPants) : tmpC.set(shade(ch.color, 0.45));
+      const skin = isPlayer ? skin3 : (hash2(i, 9) < 0.4 ? skin2 : skinC);
+      const hairC = ch.kind === 'police' ? tmpC.set(0x1a2a4a) : ch.kind === 'fire' ? tmpC.set(0xffd23f) : tmpC.set(0x2a1a12);
+      part(chHead, i, ch.x, rootY, ch.y, yaw, down, 0, 52, 0, 0, 12, 12, 12, skin);
+      part(chHair, i, ch.x, rootY, ch.y, yaw, down, 0, 58, -1, 0, 13, 5, 13, hairC);
+      part(chTorso, i, ch.x, rootY, ch.y, yaw, down, 0, 34, 0, 0, 18, 22, 10, shirt);
+      part(chArmL, i, ch.x, rootY, ch.y, yaw, down, -12, 42, 0, -sw, 6, 20, 6, shirt);
+      part(chArmR, i, ch.x, rootY, ch.y, yaw, down, 12, 42, 0, isPlayer && ch.aiming ? -1.25 : sw, 6, 20, 6, shirt);
+      part(chLegL, i, ch.x, rootY, ch.y, yaw, down, -5, 22, 0, sw, 7, 22, 7, pants);
+      part(chLegR, i, ch.x, rootY, ch.y, yaw, down, 5, 22, 0, -sw, 7, 22, 7, pants);
+      if (isPlayer && HL.Weapons.drawn(state)) {
+        const fx = Math.cos(ch.angle), fy = Math.sin(ch.angle);
+        const rx = -fy, ry = fx;
+        tmpQ.setFromEuler(_e.set(0, yaw, 0, 'YXZ'));
+        tmpM.compose(_v.set(ch.x + fx * 20 + rx * 12, 36, ch.y + fy * 20 + ry * 12), tmpQ, _s.set(3, 3, 14));
+        chGun.setMatrixAt(0, tmpM);
+        gunOn = true;
       }
     }
-    const target = missionTarget(state);
-    const job = state.sideJob && !state.mission
-      ? (state.sideJob.stage === 'pickup' ? state.sideJob.pickup : state.sideJob.drop) : null;
-    const mark = target ? { x: target.x, y: target.y } : job;
-    if (mark) {
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, mark.x, mark.y, 70, 44, 1);
-      if (e) entries.push({ ...e, canvas: markerSprite() });
-      const base = project(cam, dirX, dirY, planeX, planeY, proj, horizon, mark.x, mark.y, 0, 10, 1);
-      if (base) {
-        const beamW = Math.max(2, 260 / base.depth);
-        sctx.fillStyle = 'rgba(255,210,63,0.10)';
-        sctx.fillRect(base.sx - beamW / 2, horizon - 160, beamW, 160);
-      }
+    chHead.count = n; chHair.count = n; chTorso.count = n;
+    chArmL.count = n; chArmR.count = n; chLegL.count = n; chLegR.count = n;
+    chGun.count = gunOn ? 1 : 0;
+    for (const m of [chHead, chHair, chTorso, chArmL, chArmR, chLegL, chLegR, chGun]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
     }
-    for (const b of state.bullets) {
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, b.x, b.y, 20, 10, 0.4);
-      if (e) {
-        sctx.fillStyle = '#ffd23f';
-        sctx.fillRect(e.sx - 1, e.bottom - e.h, 2, e.h);
-      }
-    }
-    for (const pt of state.particles) {
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, pt.x, pt.y, 6, pt.size * 2, 1);
-      if (e) {
-        sctx.globalAlpha = Math.max(0, pt.life / pt.maxLife);
-        sctx.fillStyle = pt.color;
-        sctx.fillRect(e.sx - e.w / 2, e.bottom - e.h, Math.max(1, e.w), Math.max(1, e.h));
-      }
-    }
-    sctx.globalAlpha = 1;
-    entries.sort((a, b) => b.depth - a.depth);
-    for (const e of entries) drawSpriteEntry(e, zbuf);
   }
 
-  /** The player from behind (on foot) or their car from behind (driving). */
-  function drawSelf(state, cam, time) {
+  const heli = new THREE.Group();
+  const heliBody = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xe8ecf2 }));
+  heliBody.scale.set(22, 16, 46); heli.add(heliBody);
+  const heliTail = new THREE.Mesh(boxGeo, new THREE.MeshLambertMaterial({ color: 0xe8ecf2 }));
+  heliTail.scale.set(6, 6, 44); heliTail.position.set(0, 2, -42); heli.add(heliTail);
+  const heliStripe = new THREE.Mesh(boxGeo, new THREE.MeshBasicMaterial({ color: 0x1a2a4a }));
+  heliStripe.scale.set(23, 4, 30); heliStripe.position.set(0, 2, 4); heli.add(heliStripe);
+  const rotor = new THREE.Group();
+  const bladeGeo = new THREE.BoxGeometry(110, 1.5, 7);
+  const bladeMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+  const b1 = new THREE.Mesh(bladeGeo, bladeMat);
+  const b2 = new THREE.Mesh(bladeGeo, bladeMat); b2.rotation.y = P2;
+  rotor.add(b1); rotor.add(b2); rotor.position.y = 12; heli.add(rotor);
+  const skidMat = new THREE.MeshBasicMaterial({ color: 0x222222 });
+  const sk1 = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 40), skidMat); sk1.position.set(-9, -11, 0); heli.add(sk1);
+  const sk2 = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 40), skidMat); sk2.position.set(9, -11, 0); heli.add(sk2);
+  const coneMat = new THREE.MeshBasicMaterial({ color: 0xfff2aa, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(46, 170, 12, 1, true), coneMat);
+  cone.visible = false;
+  scene.add(cone);
+  heli.visible = false;
+  scene.add(heli);
+  const pool = new THREE.Mesh(
+    new THREE.CircleGeometry(60, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfff2aa, transparent: true, opacity: 0.18, blending: THREE.AdditiveBlending, depthWrite: false }),
+  );
+  pool.rotation.x = -P2; pool.position.y = 1; pool.visible = false;
+  scene.add(pool);
+  const heliPos = new THREE.Vector3(0, 170, 0);
+  const _up = new THREE.Vector3(0, 1, 0);
+  const _dir = new THREE.Vector3();
+  function syncHeli(state, dt, time) {
+    const on = state.wanted >= 3 && !state.wasted && !state.busted;
+    heli.visible = on; pool.visible = on; cone.visible = on;
+    if (!on) return;
     const p = state.player;
-    if (p.onFoot) {
-      const bob = p.moving ? Math.sin(time * 10) * 2 : 0;
-      const img = playerSprite(!!p.aiming);
-      const w = 150;
-      const h = 200;
-      const x = RW / 2 - w / 2 + cam.shoulder;
-      sctx.drawImage(img, x, RH - h - 4 + bob, w, h);
-    } else if (p.car) {
-      const img = playerCarSprite(p.car.color);
-      const w = 280;
-      const h = 186;
-      sctx.drawImage(img, RW / 2 - w / 2, RH - h - 2, w, h);
-    }
+    const px = p.car ? p.car.x : p.x;
+    const py = p.car ? p.car.y : p.y;
+    const fx = Math.cos(state.camera.angle), fy = Math.sin(state.camera.angle);
+    const tx = px + fx * 150 - fy * 50;
+    const ty = py + fy * 150 + fx * 50;
+    heliPos.x = lerp(heliPos.x, tx, Math.min(1, dt * 1.2));
+    heliPos.y = lerp(heliPos.y, 170, Math.min(1, dt * 1.2));
+    heliPos.z = lerp(heliPos.z, ty, Math.min(1, dt * 1.2));
+    heli.position.copy(heliPos);
+    heli.rotation.y = rotY(Math.atan2(py - heliPos.z, px - heliPos.x));
+    rotor.rotation.y += dt * 22;
+    _dir.set(heliPos.x - px, 170, heliPos.z - py).normalize();
+    cone.position.set((heliPos.x + px) / 2, 85, (heliPos.z + py) / 2);
+    cone.quaternion.setFromUnitVectors(_up, _dir);
+    pool.position.set(px, 1, py);
+    pool.material.opacity = 0.12 + 0.08 * Math.sin(time * 4);
   }
 
-  /** Neon signs (HOTEL / BAR / TACOS) painted on the wall that carries them. */
-  function drawSigns(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg) {
-    const seen = new Set();
-    for (let c = 0; c < COLS; c += 1) {
-      const b = colBldg[c];
-      if (!b || !b.sign || seen.has(b)) continue;
-      seen.add(b);
-      const cx = b.x + b.w / 2;
-      const cy = b.y + b.h / 2;
-      const e = project(cam, dirX, dirY, planeX, planeY, proj, horizon, cx, cy, b.height * WALL * 0.85, 20, 4);
-      if (!e || e.depth >= zbuf[Math.floor((e.sx / RW) * COLS)]) continue;
-      sctx.font = `700 ${Math.max(10, Math.round(e.h))}px ${FONT}`;
-      sctx.textAlign = 'center';
-      sctx.fillStyle = (b.x + b.y) % 2 === 0 ? PALETTE.neonPink : PALETTE.neonCyan;
-      sctx.globalAlpha = 0.65 + 0.35 * Math.sin(state.time * 3 + b.x * 0.7);
-      sctx.fillText(b.sign, e.sx, e.bottom);
-      sctx.globalAlpha = 1;
+  const RAIN_N = 500;
+  const rainGeo = new THREE.BufferGeometry();
+  const rainPos = new Float32Array(RAIN_N * 3);
+  rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+  const rainMat = new THREE.PointsMaterial({
+    map: makeTex(8, 32, (g) => { g.fillStyle = 'rgba(180,200,230,0.8)'; g.fillRect(3, 0, 2, 32); }),
+    size: 14, transparent: true, opacity: 0.45, depthWrite: false, sizeAttenuation: true,
+  });
+  const rain = new THREE.Points(rainGeo, rainMat);
+  rain.visible = false; rain.frustumCulled = false;
+  scene.add(rain);
+  const rainSeed = [];
+  for (let i = 0; i < RAIN_N; i += 1) rainSeed.push({ x: hash2(i, 1), y: hash2(i, 2), z: hash2(i, 3), v: 380 + hash2(i, 4) * 220 });
+  function syncRain(state, dt, camX, camY) {
+    const r = state._hlRain || 0;
+    rain.visible = r > 0.05;
+    if (!rain.visible) return;
+    for (let i = 0; i < RAIN_N; i += 1) {
+      const s = rainSeed[i];
+      s.y -= (s.v * dt) / 300;
+      s.x -= (s.v * dt) / 1200;
+      if (s.y < 0) { s.y = 1; s.x = hash2(i, Math.floor(state.time * 2) % 97); s.z = hash2(i, 5); }
+      rainPos[i * 3] = camX + (s.x - 0.5) * 500;
+      rainPos[i * 3 + 1] = s.y * 300;
+      rainPos[i * 3 + 2] = camY + (s.z - 0.5) * 500;
     }
+    rainGeo.attributes.position.needsUpdate = true;
+    rainMat.opacity = 0.45 * r;
+  }
+
+  const P_MAX = 400;
+  const pGeo = new THREE.BufferGeometry();
+  const pPos = new Float32Array(P_MAX * 3);
+  const pCol = new Float32Array(P_MAX * 3);
+  pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+  pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+  const pMat = new THREE.PointsMaterial({
+    map: glowTex('rgba(255,255,255,1)', 'rgba(255,255,255,0)'), size: 9,
+    vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true,
+  });
+  const points = new THREE.Points(pGeo, pMat);
+  points.frustumCulled = false;
+  scene.add(points);
+  const bGeo = new THREE.BufferGeometry();
+  const bPos = new Float32Array(32 * 3);
+  bGeo.setAttribute('position', new THREE.BufferAttribute(bPos, 3));
+  const bMat = new THREE.PointsMaterial({ color: 0xfff2aa, size: 7, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+  const bPoints = new THREE.Points(bGeo, bMat);
+  bPoints.frustumCulled = false;
+  scene.add(bPoints);
+  const smokeTex = glowTex('rgba(120,120,130,0.7)', 'rgba(120,120,130,0)');
+  const smokes = [];
+  for (let i = 0; i < 4; i += 1) {
+    const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: smokeTex, transparent: true, opacity: 0, depthWrite: false }));
+    s.visible = false; scene.add(s); smokes.push(s);
+  }
+  function syncFx(state, dt, time) {
+    const parts = state.particles;
+    const n = Math.min(parts.length, P_MAX);
+    for (let i = 0; i < n; i += 1) {
+      const pt = parts[i];
+      pPos[i * 3] = pt.x; pPos[i * 3 + 1] = pt.z || 2; pPos[i * 3 + 2] = pt.y;
+      const fade = clamp(pt.life / pt.maxLife, 0, 1);
+      tmpC.set(pt.color);
+      pCol[i * 3] = tmpC.r * fade; pCol[i * 3 + 1] = tmpC.g * fade; pCol[i * 3 + 2] = tmpC.b * fade;
+    }
+    pGeo.setDrawRange(0, n);
+    pGeo.attributes.position.needsUpdate = true;
+    pGeo.attributes.color.needsUpdate = true;
+    const nb = Math.min(state.bullets.length, 32);
+    for (let i = 0; i < nb; i += 1) {
+      const b = state.bullets[i];
+      bPos[i * 3] = b.x; bPos[i * 3 + 1] = 30; bPos[i * 3 + 2] = b.y;
+    }
+    bGeo.setDrawRange(0, nb);
+    bGeo.attributes.position.needsUpdate = true;
+    let si = 0;
+    for (const c of state.cars) {
+      if (!c.wrecked || si >= 4) continue;
+      const s = smokes[si];
+      s.visible = true;
+      s.position.set(c.x, 22 + ((c.smokeTimer || 0) % 6) * 4, c.y);
+      const sc = 40 + ((c.smokeTimer || 0) % 6) * 14;
+      s.scale.set(sc, sc, 1);
+      s.material.opacity = 0.5;
+      si += 1;
+    }
+    for (; si < 4; si += 1) smokes[si].visible = false;
+  }
+
+  let lastTime = 0;
+  let qualityLevel = 0;
+  const _eye = new THREE.Vector3();
+  const _look = new THREE.Vector3();
+  const _rgt = new THREE.Vector3();
+  const _tgt = new THREE.Vector3();
+  function updateCamera3D(state, dt, time) {
+    const cam = state.camera;
+    const p = state.player;
+    const tx = p.car ? p.car.x : p.x;
+    const ty = p.car ? p.car.y : p.y;
+    const driving = !!p.car;
+    const aiming = p.aiming && !driving;
+    const eyeH = driving ? 52 : (aiming ? 36 : 40);
+    const lookH = driving ? 12 : (aiming ? 30 : 28);
+    const th = cam.angle ?? -P2;
+    _rgt.set(-Math.sin(th), 0, Math.cos(th));
+    const sh = (cam.shoulder || 0) * -0.6;
+    const shx = (Math.random() - 0.5) * (cam.shake || 0) * 0.6;
+    const shy = (Math.random() - 0.5) * (cam.shake || 0) * 0.4;
+    _eye.set(cam.x + _rgt.x * sh + shx, eyeH + shy, cam.y + _rgt.z * sh);
+    _look.set(tx + _rgt.x * sh, lookH, ty + _rgt.z * sh);
+    camera.position.copy(_eye);
+    camera.lookAt(_look);
+    const fovDeg = (cam.fov ?? 1.15) * 180 / Math.PI;
+    if (Math.abs(camera.fov - fovDeg) > 0.05) { camera.fov = fovDeg; camera.updateProjectionMatrix(); }
+    const night = clamp((HL.Sky.time - 18.5) / 3, 0, 1);
+    sun.intensity = lerp(1.7, 0.45, night);
+    hemi.intensity = lerp(0.95, 0.4, night);
+    sun.color.setHSL(0.08, 0.9, lerp(0.62, 0.4, night));
+    scene.fog.color.setHex(night > 0.5 ? 0x1a1430 : 0x3a2a4a);
+    sunSprite.material.opacity = lerp(1, 0.25, night);
+    _tgt.set(tx, 0, ty);
+    sun.position.set(tx - 900, 420, ty + 700);
+    sun.target.position.copy(_tgt);
+    for (const c of clouds) { c.position.x += dt * 3; if (c.position.x > 3400) c.position.x = -400; }
   }
 
   function drawPanel(title, lines, prompt) {
-    const height = PANEL.top + lines.length * PANEL.line + PANEL.bottom;
-    const x = (VIEW.width - PANEL.width) / 2;
-    const y = (VIEW.height - height) / 2;
-    context.fillStyle = PALETTE.panel;
-    context.fillRect(x, y, PANEL.width, height);
-    context.strokeStyle = PALETTE.panelEdge;
-    context.lineWidth = 2;
-    context.strokeRect(x, y, PANEL.width, height);
-    text(title, VIEW.width / 2, y + 78, 46, PALETTE.text, 'center', true);
-    for (let index = 0; index < lines.length; index += 1) {
-      text(lines[index], VIEW.width / 2, y + PANEL.top + index * PANEL.line, 20, PALETTE.muted, 'center');
-    }
-    text(prompt, VIEW.width / 2, y + height - 38, 22, PALETTE.neonYellow, 'center', true);
+    const ctx = hudCtx;
+    ctx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
+    ctx.fillStyle = 'rgba(8,10,18,0.82)';
+    const w = 640;
+    const h = 150 + lines.length * 32;
+    ctx.fillRect(VIEW.width / 2 - w / 2, 150, w, h);
+    ctx.strokeStyle = PALETTE.panelEdge; ctx.lineWidth = 2;
+    ctx.strokeRect(VIEW.width / 2 - w / 2, 150, w, h);
+    ctx.fillStyle = PALETTE.text; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    ctx.font = `700 44px ${FONT}`;
+    ctx.fillText(title, VIEW.width / 2, 150 + 62);
+    ctx.font = `20px ${FONT}`;
+    lines.forEach((ln, i) => { ctx.fillStyle = i === 0 ? PALETTE.neonYellow : PALETTE.text; ctx.fillText(ln, VIEW.width / 2, 150 + 104 + i * 32); });
+    ctx.font = `700 18px ${FONT}`; ctx.fillStyle = PALETTE.neonCyan;
+    ctx.fillText(prompt, VIEW.width / 2, 150 + h - 18);
+    ctx.textAlign = 'left';
   }
 
-  /** Paint one frame: the raycast world, then HUD or a panel. */
+  function resize() {
+    const w = Math.min(window.innerWidth || VIEW.width, 1920);
+    const h = Math.min(window.innerHeight || VIEW.height, 1080);
+    const pr = Math.min(window.devicePixelRatio || 1, qualityLevel === 0 ? 2 : qualityLevel === 1 ? 1.25 : 1);
+    renderer.setPixelRatio(pr);
+    renderer.setSize(w, h, false);
+    hudCanvas.width = w; hudCanvas.height = h;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    view.scale = Math.min(w / VIEW.width, h / VIEW.height);
+    view.x = (w - VIEW.width * view.scale) / 2;
+    view.y = (h - VIEW.height * view.scale) / 2;
+  }
+
   function draw(state, screen, best, time) {
-    const cam = state.camera;
-    const shakeA = cam.shake ? (Math.random() - 0.5) * cam.shake * 0.004 : 0;
-    const angle = (cam.angle ?? -Math.PI / 2) + shakeA;
-    const fov = cam.fov ?? 1.15;
-    const horizon = RH / 2 + (cam.shake ? (Math.random() - 0.5) * cam.shake * 0.5 : 0);
-    const dirX = Math.cos(angle);
-    const dirY = Math.sin(angle);
-    const tanHalf = Math.tan(fov / 2);
-    const planeX = -dirY * tanHalf;
-    const planeY = dirX * tanHalf;
-    const proj = (RW / 2) / tanHalf;
-    wallGrid(state.city);
-    const zbuf = new Array(COLS).fill(1e9);
-    const colBldg = new Array(COLS).fill(null);
-    sctx.setTransform(1, 0, 0, 1, 0, 0);
-    drawSky(angle, fov, horizon, time);
-    drawFloor(state, cam, dirX, dirY, planeX, planeY, proj, horizon);
-    drawWalls(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
-    drawSprites(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, time);
-    drawSigns(state, cam, dirX, dirY, planeX, planeY, proj, horizon, zbuf, colBldg);
-    if (state._hlDrops) { // rain: 2D streaks from the patch kit's pool
-      sctx.strokeStyle = 'rgba(180,200,230,0.35)';
-      sctx.lineWidth = 1;
-      sctx.beginPath();
-      for (const d of state._hlDrops) { sctx.moveTo(d.x, d.y); sctx.lineTo(d.x - 3, d.y + 10); }
-      sctx.stroke();
-    }
-    if (screen === SCREEN_PLAY) drawSelf(state, cam, time);
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = PALETTE.backdrop;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    context.drawImage(scene, 0, 0, VIEW.width, VIEW.height);
-    const v = context.createRadialGradient(VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.45, VIEW.width / 2, VIEW.height / 2, VIEW.height * 0.85);
-    v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(0,0,0,0.38)');
-    context.fillStyle = v;
-    context.fillRect(0, 0, VIEW.width, VIEW.height);
-    if (state._hlTint) { context.fillStyle = state._hlTint; context.fillRect(0, 0, VIEW.width, VIEW.height); } // dusk deepening + rain grey
+    const dt = clamp(time - lastTime, 0, 0.1) || 0.016;
+    lastTime = time;
+    buildCity(state.city); buildVeg(state.city); buildLamps(state.city);
+    updateCamera3D(state, dt, time);
+    syncCars(state, dt, time);
+    syncChars(state, dt, time);
+    syncHeli(state, dt, time);
+    syncRain(state, dt, state.camera.x, state.camera.y);
+    syncFx(state, dt, time);
+    renderer.render(scene, camera);
+    hudCtx.setTransform(1, 0, 0, 1, 0, 0);
+    hudCtx.clearRect(0, 0, hudCanvas.width, hudCanvas.height);
+    if (state._hlTint) { hudCtx.fillStyle = state._hlTint; hudCtx.fillRect(0, 0, hudCanvas.width, hudCanvas.height); }
+    hudCtx.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
     if (screen === SCREEN_TITLE) {
       drawPanel('NEON BAY', [
         'A sun-soaked city after dark. You are Kai Reyes,',
@@ -876,8 +690,8 @@ export function createRenderer(canvas) {
       return;
     }
     const speedKmh = state.player.car ? Math.abs(state.player.car.speed) * 0.36 : null;
-    drawHud(context, state, speedKmh);
-    if (screen === SCREEN_PLAY) drawCrosshair(context, state);
+    drawHud(hudCtx, state, speedKmh);
+    if (screen === SCREEN_PLAY) drawCrosshair(hudCtx, state);
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', '', 'Progress saves when a job ends.'], 'Press P to resume • S to save now');
     } else if (screen === SCREEN_OVER) {
@@ -887,55 +701,50 @@ export function createRenderer(canvas) {
     }
   }
 
-  /** Screen pixels (clientX/Y) → a world point along that screen ray. */
+  /** Screen pixels -> a world point on the ground plane (for menus). */
   function toWorld(clientX, clientY, cam) {
-    const ratio = Math.min(window.devicePixelRatio || 1, 2);
-    const vx = (clientX * ratio - view.x) / view.scale;
-    const vy = (clientY * ratio - view.y) / view.scale;
-    const fov = cam.fov ?? 1.15;
-    const tanHalf = Math.tan(fov / 2);
-    const angle = cam.angle ?? -Math.PI / 2;
-    const dirX = Math.cos(angle);
-    const dirY = Math.sin(angle);
-    const planeX = -dirY * tanHalf;
-    const planeY = dirX * tanHalf;
-    const camX = (vx / VIEW.width) * 2 - 1;
-    const rx = dirX + planeX * camX;
-    const ry = dirY + planeY * camX;
-    const len = Math.hypot(rx, ry) || 1;
-    const d = 460;
-    return { x: cam.x + (rx / len) * d, y: cam.y + (ry / len) * d };
+    const nx = (clientX / hudCanvas.width) * 2 - 1;
+    const ny = -((clientY / hudCanvas.height) * 2 - 1);
+    const v = new THREE.Vector3(nx, ny, 0.5).unproject(camera);
+    const dir = v.sub(camera.position).normalize();
+    const t = -camera.position.y / dir.y;
+    return { x: camera.position.x + dir.x * t, y: camera.position.z + dir.z * t };
+  }
+  /** World point -> screen pixels (1280x720 logical). */
+  function toScreen(wx, wy, cam) {
+    const v = new THREE.Vector3(wx, 0, wy).project(camera);
+    return { x: ((v.x + 1) / 2) * VIEW.width, y: ((1 - v.y) / 2) * VIEW.height };
   }
 
-  /** World point → screen pixels (centre-ray projection), for the HUD. */
-  function toScreen(wx, wy, cam) {
-    const angle = cam.angle ?? -Math.PI / 2;
-    const fov = cam.fov ?? 1.15;
-    const tanHalf = Math.tan(fov / 2);
-    const dirX = Math.cos(angle);
-    const dirY = Math.sin(angle);
-    const planeX = -dirY * tanHalf;
-    const planeY = dirX * tanHalf;
-    const dx = wx - cam.x;
-    const dy = wy - cam.y;
-    const depth = dx * dirX + dy * dirY;
-    const lat = dx * planeX + dy * planeY;
+  function setQuality(level) {
+    qualityLevel = level;
+    renderer.shadowMap.enabled = level < 2;
+    scene.fog.far = [1600, 1100, 700][level] || 1600;
+    if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
+    sun.shadow.mapSize.set(level === 0 ? 1024 : 512, level === 0 ? 1024 : 512);
+    resize();
+  }
+  function clearCaches() {
+    cityBuilt = null; vegBuilt = null; lampBuilt = null;
+    if (bldgMesh) { scene.remove(bldgMesh); scene.remove(roofMesh); bldgMesh = null; roofMesh = null; }
+  }
+
+  /** Scene stats for tests: counts, heli, and whether the player is in frame. */
+  function stats(state) {
+    const p = state.player;
+    const px = p.car ? p.car.x : p.x;
+    const py = p.car ? p.car.y : p.y;
+    const fx = Math.cos(state.camera.angle ?? -P2);
+    const fy = Math.sin(state.camera.angle ?? -P2);
+    const ahead = (px - camera.position.x) * fx + (py - camera.position.z) * fy;
     return {
-      x: (VIEW.width / 2) * (1 + lat / Math.max(1, depth)),
-      y: VIEW.height / 2,
+      headless, buildings: bldgMesh ? bldgMesh.count : 0, cars: carBody.count,
+      peds: chHead.count, heli: heli.visible, playerAhead: Math.round(ahead),
+      sceneChildren: scene.children.length,
     };
   }
 
-  /** Lower the internal scene resolution (Perf quality 0/1/2). */
-  function setQuality(level) {
-    const q = [[640, 360, 160], [480, 270, 120], [320, 180, 80]][level] || [640, 360, 160];
-    RW = q[0]; RH = q[1]; COLS = q[2];
-    scene.width = RW; scene.height = RH;
-  }
-  /** Free the sprite/texture caches (only unique objects are held). */
-  function clearCaches() { sprites.clear(); wallTex.clear(); }
-
   resize();
   window.addEventListener('resize', resize);
-  return { draw, toScreen, toWorld, setQuality, clearCaches };
+  return { draw, toScreen, toWorld, setQuality, clearCaches, stats };
 }

@@ -20,10 +20,11 @@ const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
 const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
 
 const canvas = document.getElementById('game');
+const hudCanvas = document.getElementById('hud');
 const status = document.getElementById('status');
 const game = createGame(seed);
-const renderer = createRenderer(canvas);
-const ctx2d = canvas.getContext('2d');
+const renderer = createRenderer(canvas, hudCanvas);
+const ctx2d = hudCanvas.getContext('2d');
 
 function runShot(name) {
   game.state._hlShot = true; // scripted demo: no roadblocks, so the frames stay comparable
@@ -39,9 +40,9 @@ function runShot(name) {
 }
 
 function runGame() {
-  const input = createInput(canvas);
+  const input = createInput(hudCanvas);
   const audio = createAudio();
-  HL.boot({ canvas, input, unlockAudio: () => audio.unlock(), setQuality: (l) => renderer.setQuality(l), announce });
+  HL.boot({ canvas: hudCanvas, input, unlockAudio: () => audio.unlock(), setQuality: (l) => renderer.setQuality(l), announce });
   let screen = SCREEN_TITLE;
   let best = readBest();
   let accumulator = 0;

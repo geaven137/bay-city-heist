@@ -15,7 +15,6 @@ export const ACTION_SHOOT = 16;
 export const ACTION_MUTE = 32;
 export const ACTION_RETRY = 64;
 
-// Key bindings live in HL.Input.bind (remappable, persisted); these read it.
 const B = HL.Input.bind;
 const inBind = (a, c) => B[a].includes(c);
 

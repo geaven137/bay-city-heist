@@ -6,11 +6,7 @@ import { PALETTE } from './config.js';
 import { HL } from './patchkit.js';
 import { atIntersection, nearestIntersection, randomSidewalkPoint, resolveBuildingCollision } from './world.js';
 
-/**
- * Walker kinds are looks only — same walk/flee/down rules for everyone.
- * Police walk the beat more often when the heat is on; firefighters are
- * a rare sight anywhere in town.
- */
+/** Walker kinds are looks only — same walk/flee/down rules for everyone. Police walk the beat more often when the heat is on; firefighters are */
 export function makePed(random, x, y, hot) {
   const roll = random();
   const kind = hot

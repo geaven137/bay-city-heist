@@ -38,12 +38,7 @@ function shapeLook(dx, aiming) {
   return Math.sign(dx) * Math.pow(m, AIM.curve) * (aiming ? AIM.aimSens : AIM.hipSens);
 }
 
-/**
- * Light aim assist while aiming: the nearest shootable target (walker or
- * car) inside a small cone around the crosshair ray pulls the facing
- * gently toward it — partial help, never a lock, and it never changes
- * damage. Returns true when a target is held (for the crosshair cue).
- */
+/** Light aim assist while aiming: the nearest shootable target (walker or car) inside a small cone around the crosshair ray pulls the facing */
 function aimAssist(state, p, dt) {
   let best = null;
   let bestDiff = AIM.assistCone;
@@ -200,13 +195,7 @@ function updateSideJob(state, dt) {
   }
 }
 
-/**
- * Third-person camera: the eye sits behind the player (or their car),
- * looking where they face. Heading, field of view and the shoulder
- * offset ease toward their targets; aiming pulls the camera in close,
- * narrows the view and shifts the player to the left third. A wall
- * behind the player pulls the camera in rather than clipping through it.
- */
+/** Third-person camera: the eye sits behind the player (or their car), looking where they face. Heading, field of view and the shoulder */
 function updateCamera(state, dt) {
   const p = state.player;
   const cam = state.camera;
@@ -230,13 +219,7 @@ function updateCamera(state, dt) {
   cam.y = Math.max(40, Math.min(CITY.height - 40, cam.y));
 }
 
-/**
- * One fixed step of the whole game. `input` is { move:{x,y}, run,
- * handbrake, aim:{x,y}|null, actions } where actions is the bit flags from
- * input.js (ACTION_*). `audio` may be null (attract mode / screenshots).
- * `harmless` is the title screen: the city lives, but nothing can hurt
- * the player and no crime counts.
- */
+/** One fixed step of the whole game. `input` is { move:{x,y}, run, handbrake, aim:{x,y}|null, actions } where actions is the bit flags from */
 export function stepGame(game, dt, input, audio, harmless) {
   const { state, random } = game;
   if (state.wasted || state.busted) return;

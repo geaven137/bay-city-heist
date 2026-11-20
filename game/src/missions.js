@@ -9,6 +9,8 @@ import { HL } from './patchkit.js';
 import { makeCar } from './vehicles.js';
 import { randomRoadPoint, randomSidewalkPoint } from './world.js';
 
+HL.Economy.gate[7] = 1500;
+
 export const STAGE_GOTO = 'goto';
 export const STAGE_PICKUP = 'pickup';
 export const STAGE_DELIVER = 'deliver';
@@ -50,6 +52,26 @@ export function missionStages(random, index) {
         { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
         { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
         { type: STAGE_DELIVER, x: S.x, y: S.y + 120, label: 'Get the crew home to the safehouse', radius: 56, needsCar: true },
+      ];
+    case 5:
+      return [
+        { type: STAGE_PICKUP, x: 480, y: 1760, label: 'Collect the crate at the marina stage', radius: 46 },
+        { type: STAGE_DELIVER, x: 2560, y: 2080, label: 'Deliver it to the beach bar before dawn', radius: 46 },
+      ];
+    case 6:
+      return [
+        { type: STAGE_PICKUP, x: 480, y: 480, label: 'Pick up Rico’s cousin at the precinct corner', radius: 46 },
+        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive him to Bay Trust Bank', radius: 56, needsCar: true },
+        { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while he settles it — 15s', radius: 80, wait: 15 },
+        { type: STAGE_DELIVER, x: G.x, y: G.y + 150, label: 'Drop him at Rico’s Garage', radius: 56, needsCar: true },
+      ];
+    case 7:
+      return [
+        { type: STAGE_PICKUP, x: S.x, y: S.y + 120, label: 'Pick up the crew at the safehouse', radius: 46 },
+        { type: STAGE_GOTO, x: B.x, y: B.y + 160, label: 'Drive the crew to Bay Trust Bank', radius: 56, needsCar: true },
+        { type: STAGE_WAIT, x: B.x, y: B.y + 160, label: 'Hold the street while they work — 20s', radius: 80, wait: 20 },
+        { type: STAGE_DELIVER, x: H.x, y: H.y + 160, label: 'Get the crew to Hotel Palmera', radius: 56, needsCar: true },
+        { type: STAGE_ESCAPE, x: 0, y: 0, label: 'Lose the cops — get to zero stars', radius: 0 },
       ];
     default:
       return [];
@@ -109,11 +131,7 @@ function failMission(state, reason) {
   state.banner = { text: 'JOB FAILED', sub: reason, timer: 3 };
 }
 
-/**
- * Advance the active mission one step. `addWanted` is the police module's
- * crime hook; `spawnSpecialCar` parks the mission car. Returns nothing;
- * the state carries the banner and the mission.
- */
+/** Advance the active mission one step. `addWanted` is the police module's crime hook; `spawnSpecialCar` parks the mission car. Returns nothing; */
 export function updateMission(state, dt, random, addWanted) {
   const m = state.mission;
   if (!m) return;

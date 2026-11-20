@@ -43,6 +43,11 @@ globalThis.document = {
 globalThis.performance = { now: () => 0 };
 globalThis.requestAnimationFrame = () => {};
 
+// Three.js (vendored UMD) for the 3D renderer; there is no real GL context
+// here, so the renderer builds and syncs the scene graph in headless mode.
+import { createRequire } from 'module';
+globalThis.THREE = createRequire(import.meta.url)('./game/vendor/three.min.js');
+
 // ---- 1. City + state ----
 const game = createGame(1);
 const { state } = game;
@@ -55,6 +60,10 @@ const renderer = createRenderer(fakeCanvas);
 try {
   renderer.draw(state, SCREEN_PLAY, 0, 0);
   check('render play frame', true);
+  const st = renderer.stats(state);
+  check('3D scene built (headless)', st.headless === true, `headless=${st.headless}`);
+  check('3D buildings instanced', st.buildings > 50, `${st.buildings} buildings`);
+  check('3D scene has objects', st.sceneChildren > 10, `${st.sceneChildren} scene children`);
 } catch (e) {
   check('render play frame', false, String(e && e.stack || e));
 }
@@ -136,10 +145,18 @@ async function finish() {
       const g = createGame(1);
       const scene = stageShot(name, g);
       renderer.draw(g.state, scene.screen, scene.best, g.state.time);
+      const st = renderer.stats(g.state);
+      const speedKmh = g.state.player.car ? Math.abs(g.state.player.car.speed) * 0.36 : 0;
       check(`shot ${name} stages (${scene.screen})`, true,
         `wanted=${g.state.wanted} cars=${g.state.cars.length} money=${g.state.money} ` +
         `inCar=${!g.state.player.onFoot} mission=${g.state.mission ? g.state.mission.def.title : 'none'} ` +
-        `cops=${g.state.cars.filter((c) => c.kind === 'police').length}`);
+        `cops=${g.state.cars.filter((c) => c.kind === 'police').length} ` +
+        `3dCars=${st.cars} 3dPeds=${st.peds} heli=${st.heli} speed=${Math.round(speedKmh)}km/h`);
+      if (name === 'play' || name === 'chase') {
+        check(`shot ${name}: player ahead of camera`, st.playerAhead > 0, `ahead=${st.playerAhead}`);
+        if (name === 'play') check(`shot ${name}: driving fast`, speedKmh > 50, `${Math.round(speedKmh)} km/h`);
+        if (name === 'chase') check(`shot ${name}: heli visible`, st.heli === true, `wanted=${g.state.wanted}`);
+      }
     } catch (e) {
       check(`shot ${name} stages`, false, String(e && e.stack || e));
     }

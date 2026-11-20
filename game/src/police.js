@@ -49,12 +49,7 @@ export function maintainPolice(state, random) {
   }
 }
 
-/**
- * Police chase: steer toward the player, choosing at each intersection the
- * outgoing road that most reduces the Manhattan distance to the player
- * (greedy pathfinding on the road grid). Rams the player's car; on foot,
- * a slow cop beside the player busts them.
- */
+/** Police chase: steer toward the player, choosing at each intersection the outgoing road that most reduces the Manhattan distance to the player */
 export function updatePoliceCar(state, cop, dt, random) {
   if (cop.roadblock) { cop.speed *= Math.max(0, 1 - 4 * dt); return; } // hold the line
   const p = state.player;

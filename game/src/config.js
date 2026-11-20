@@ -56,13 +56,7 @@ export const CAR = {
   health: 100,
 };
 
-/**
- * Aim feel (from the aim-settings video's principles, adapted to mouse):
- * a small dead zone kills jitter, hip-fire turns faster than aiming, a
- * mild response curve keeps small corrections precise while big flicks
- * still turn fast, and a light assist pulls the aim gently toward a
- * target inside a small cone while aiming — partial help, never a lock.
- */
+/** Aim feel (from the aim-settings video's principles, adapted to mouse): a small dead zone kills jitter, hip-fire turns faster than aiming, a */
 export const AIM = {
   deadZone: 1.5, // px of mouse travel per frame ignored (jitter)
   hipSens: 0.0026, // rad per px, hip-fire (was 0.0022: too slow to track)
@@ -81,15 +75,28 @@ export const WANTED = {
   killPedestrian: 2,
   decaySeconds: 9, // unseen this long: lose one star
   maxCops: 6,
+  heliStars: 3, // Air One joins the chase at three stars
 };
 
+/** Eight story jobs (JOB 1/8 … JOB 8/8). The first five keep their order
+ * and pay, so the patch kit's economy gate (job 5 needs $500) still lands. */
 export const MISSIONS = [
   { id: 'fare', title: 'First Fare', giver: 'Mara Voss', reward: 150, time: 100 },
   { id: 'hotwheels', title: 'Hot Wheels', giver: 'Rico', reward: 300, time: 120 },
   { id: 'midnight', title: 'Midnight Run', giver: 'Mara Voss', reward: 250, time: 80 },
   { id: 'heat', title: 'Lose the Heat', giver: 'Mara Voss', reward: 400, time: 150 },
   { id: 'score', title: 'The Big Score', giver: 'Mara Voss', reward: 800, time: 240 },
+  { id: 'harbour', title: 'Harbour Lights', giver: 'Mara Voss', reward: 500, time: 150 },
+  { id: 'payback', title: 'Payback', giver: 'Rico', reward: 600, time: 180 },
+  { id: 'crown', title: 'Neon Crown', giver: 'Mara Voss', reward: 1000, time: 300 },
 ];
+
+/** Third-person camera heights (world units) for the 3D renderer. */
+export const CAM3D = {
+  eyeDrive: 52, eyeFoot: 40, eyeAim: 36,
+  lookDrive: 12, lookFoot: 28, lookAim: 30,
+  heliHeight: 170,
+};
 
 export const PALETTE = {
   backdrop: '#0d0f1a',

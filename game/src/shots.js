@@ -28,19 +28,10 @@ function walkToward(game, tx, ty) {
   const dy = ty - p.y;
   const d = Math.hypot(dx, dy);
   if (d < 24) return idleInput();
-  // moveWorld: the autopilot steers in world axes (the player steers
-  // camera-relative, but the staging pilot is a director, not a player).
   return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0, moveWorld: true };
 }
 
-/**
- * Drive the player's car toward (tx, ty) on the road grid: at each
- * intersection pick the street that leads toward the target (greedy,
- * like the police pathfind), and steer to hold that street between them.
- * The leg is picked from the road the car is actually on — traffic cars
- * live on roads, so the stolen car is on one, and driving straight at a
- * target off that road would cut across blocks and wedge on buildings.
- */
+/** Drive the player's car toward (tx, ty) on the road grid: at each intersection pick the street that leads toward the target (greedy, */
 function driveToward(game, tx, ty) {
   const car = game.state.player.car;
   if (!car) return idleInput();
@@ -48,7 +39,6 @@ function driveToward(game, tx, ty) {
   const dy = ty - car.y;
   const dist = Math.hypot(dx, dy);
   if (dist < 70) return idleInput();
-  // Remember the chosen street on the car so it holds a line between crossings.
   if (car.autoAxis === undefined) {
     const onH = Math.abs(car.y - nearestCentre(roadCentresY, car.y)) <= 26;
     const onV = Math.abs(car.x - nearestCentre(roadCentresX, car.x)) <= 26;
@@ -59,7 +49,6 @@ function driveToward(game, tx, ty) {
     car.autoX = car.x;
     car.autoY = car.y;
   }
-  // At an intersection, turn onto the road that still has far to go.
   if (atIntersection(car.x, car.y)) {
     if (car.autoAxis === 'x' && Math.abs(dy) > 160 && Math.abs(dx) < 160) {
       car.autoAxis = 'y'; car.autoDir = Math.sign(dy) || 1;
@@ -72,12 +61,8 @@ function driveToward(game, tx, ty) {
   while (diff > Math.PI) diff -= Math.PI * 2;
   while (diff < -Math.PI) diff += Math.PI * 2;
   const steer = Math.max(-1, Math.min(1, diff * 2.4));
-  // Coast through turns instead of handbraking to a crawl: the grip model
-  // needs speed to turn, so braking hard mid-corner stranded the car at
-  // 1 km/h. Handbrake only for a near-reversal.
   const gas = Math.abs(diff) > 0.9 ? 0 : -1;
   const handbrake = Math.abs(diff) > 2.4;
-  // Re-pick the street every 240px of travel, so the route bends toward the target.
   if (Math.hypot(car.x - car.autoX, car.y - car.autoY) > 240) car.autoAxis = undefined;
   return { move: { x: steer, y: gas }, run: false, handbrake, aim: null, actions: 0 };
 }
@@ -107,8 +92,6 @@ function stealNearestCar(game, limit) {
     stepGame(game, STEP, input, null, false);
     if (game.state.wasted || game.state.busted) return false;
   }
-  // Staging fallback: the traffic may have driven off — put the player
-  // beside the nearest car and steal it for real with the E action.
   const p = game.state.player;
   const car = nearestCar(game.state, p.x, p.y, 1400);
   if (!car) return false;
@@ -118,19 +101,32 @@ function stealNearestCar(game, limit) {
   return !!game.state.player.car;
 }
 
-const DOWNTOWN_LOOP = [
-  { x: 480, y: 480 }, { x: 2560, y: 480 }, { x: 2560, y: 1760 }, { x: 480, y: 1760 },
-];
-
-/**
- * Staging-only separation: after the drive, police cars that ended up
- * tailgating in the player's lane read as one blob with the player car
- * (the player car is a fixed centre sprite; a cop at the same depth and
- * lane projects right on top of it). Move each such cop to the next lane
- * over, slightly ahead, so every car reads as its own car. Positions
- * only — counts, wanted, mission and speed are untouched.
- */
+/** Staging-only separation: after the drive, police cars that ended up tailgating in the player's lane read as one blob with the player car */
 const SPREAD_LATS = [150, -150, 220, -220];
+/** Chase staging only: police are faster (560 vs 520), so left alone they catch up, get in front and pin the player to 0 km/h. A cop ahead of the */
+function trailPolice(game) {
+  const p = game.state.player;
+  const car = p.car;
+  if (!car) return;
+  const fx = Math.cos(car.angle);
+  const fy = Math.sin(car.angle);
+  let i = 0;
+  for (const c of game.state.cars) {
+    if (c.kind !== 'police') continue;
+    const ahead = (c.x - car.x) * fx + (c.y - car.y) * fy;
+    if (ahead > -40) {
+      const back = 150 + (i % 3) * 90;
+      const lat = (i % 2 === 0 ? 1 : -1) * 72;
+      const nx = car.x - fx * back - fy * lat;
+      const ny = car.y - fy * back + fx * lat;
+      if (!hitsBuilding(game.state.city, nx, ny, 20)) {
+        c.x = nx; c.y = ny; c.angle = car.angle; c.speed = Math.max(c.speed, 320);
+      }
+    }
+    i += 1;
+  }
+}
+
 function spreadPolice(game) {
   const { state } = game;
   const pcar = state.player.car;
@@ -164,6 +160,15 @@ function spreadPolice(game) {
   }
 }
 
+/** Drive the beach road (y = 2080) out and back at full throttle: a long straight with the sea and the palms on one side, so the frame catches */
+const BEACH_Y = 2080;
+function driveBeach(game, dir) {
+  const car = game.state.player.car;
+  if (!car) return idleInput();
+  const target = { x: dir > 0 ? 3000 : 200, y: BEACH_Y };
+  return driveToward(game, target.x, target.y);
+}
+
 /**
  * Set `game` to the named scene (start, play, chase or end; any other name
  * is start) and return the screen to draw over it and the best money to show.
@@ -173,44 +178,44 @@ export function stageShot(name, game) {
   if (name === 'play' || name === 'chase') {
     stealNearestCar(game, 14);
     if (name === 'play') {
-      // Capture the frame while the car is actually moving: stop the drive
-      // once it holds a cruise over 50 km/h for a few steps, so the shot
-      // shows driving down a clear road, not a car parked mid-turn. If the
-      // car never gets clear road, the full run is the fallback frame.
-      let wp = 0;
       let fast = 0;
+      let dir = 1;
       const steps = Math.floor(PLAY_SECONDS / STEP);
       for (let i = 0; i < steps; i += 1) {
-        const target = DOWNTOWN_LOOP[wp % DOWNTOWN_LOOP.length];
         const car = game.state.player.car;
-        if (car && Math.hypot(car.x - target.x, car.y - target.y) < 120) wp += 1;
-        stepGame(game, STEP, game.state.player.car ? driveToward(game, target.x, target.y) : idleInput(), null, false);
+        if (car && ((dir > 0 && car.x > 2900) || (dir < 0 && car.x < 300))) dir = -dir;
+        stepGame(game, STEP, game.state.player.car ? driveBeach(game, dir) : idleInput(), null, false);
         if (game.state.wasted || game.state.busted) break;
         const c = game.state.player.car;
-        fast = c && Math.abs(c.speed) > 140 ? fast + 1 : 0;
+        fast = c && Math.abs(c.speed) > 220 ? fast + 1 : 0;
         if (fast >= 12) break;
       }
       spreadPolice(game);
       return { screen: SCREEN_PLAY, best: state.money };
     }
-    // Chase: a job that makes noise, three stars, and the police on us.
     startMission(state, random, 3);
     addWanted(state, 1, state.player.x, state.player.y);
-    runSteps(game, CHASE_SECONDS, () => {
-      const p = game.state.player;
-      if (!p.car) return idleInput();
-      // Drive at the bank, then away from it — the cops follow either way.
-      const elapsed = state.time;
-      const target = elapsed < 10 ? { x: CITY.bank.x, y: CITY.bank.y + 160 } : { x: 480, y: 1760 };
-      return driveToward(game, target.x, target.y);
-    }, false);
+    let fast = 0;
+    let dir = 1;
+    let elapsed = 0;
+    const steps = Math.floor(CHASE_SECONDS / STEP);
+    for (let i = 0; i < steps; i += 1) {
+      const car = game.state.player.car;
+      if (car && ((dir > 0 && car.x > 2900) || (dir < 0 && car.x < 300))) dir = -dir;
+      stepGame(game, STEP, game.state.player.car ? driveBeach(game, dir) : idleInput(), null, false);
+      elapsed += STEP;
+      trailPolice(game);
+      if (game.state.wasted || game.state.busted) break;
+      const c = game.state.player.car;
+      fast = c && Math.abs(c.speed) > 250 ? fast + 1 : 0;
+      if (fast >= 12 && elapsed > 5) break;
+    }
     spreadPolice(game);
     return { screen: SCREEN_PLAY, best: state.money };
   }
   if (name === 'end') {
     stealNearestCar(game, 14);
     addWanted(state, 3, state.player.x, state.player.y);
-    // Phase 1: ram the nearest cop, head-on, until the car or the player breaks.
     runSteps(game, 40, () => {
       const p = game.state.player;
       if (!p.car) return idleInput();
@@ -224,9 +229,6 @@ export function stageShot(name, game) {
       return cop ? driveToward(game, cop.x, cop.y) : idleInput();
     }, false);
     if (state.wasted) return { screen: SCREEN_OVER, best: state.money };
-    // Phase 2: out of the car, in front of a stopped cop — that is a bust.
-    // (Staging only: hold the cop still, as a cop that has pulled up would
-    // be; the bust itself runs through the real updatePoliceCar rule.)
     if (state.player.car) {
       exitCar(state);
       const cop = state.cars.find((c) => c.kind === 'police');
@@ -239,14 +241,6 @@ export function stageShot(name, game) {
         }, false);
       }
       if (state.busted) {
-        // Reposition the eye for the final frame: the bust puts the player
-        // 34 units in front of a cop, and the camera had been pulled in
-        // by a wall behind (eye 23 units behind the player, cop 57 from
-        // the eye), so the cop car filled the frame. A straight pull-back
-        // is blocked by that same wall, so search: step back until the
-        // nearest cop reads ~170 units deep, sidestepping to clear the
-        // wall's corner, and only accept a spot that is open and has a
-        // clear line to the cop. Steps have stopped, so the camera stays.
         const cam = state.camera;
         const fx = Math.cos(cam.angle);
         const fy = Math.sin(cam.angle);
@@ -284,7 +278,6 @@ export function stageShot(name, game) {
     }
     return { screen: state.wasted ? SCREEN_OVER : SCREEN_PLAY, best: state.money };
   }
-  // start: the title over the living city, camera downtown.
   state.camera.x = 1600;
   state.camera.y = 1120;
   runSteps(game, START_SECONDS, () => idleInput(), true);
