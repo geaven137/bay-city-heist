@@ -224,8 +224,8 @@ function drawPlay(ctx, state) {
   }
   // Sea strip on the minimap.
   ctx.fillStyle = '#0e4d5c';
-  const [sx] = toMap(0, 2240);
-  ctx.fillRect(mx - mr, sx - 8, mr * 2, 16);
+  const [, seaY] = toMap(0, 2240);
+  ctx.fillRect(mx - mr, seaY - 8, mr * 2, 16);
   // Mission marker.
   if (state.missionTarget) {
     const [tx, ty] = toMap(state.missionTarget.x, state.missionTarget.y);

@@ -42,7 +42,12 @@ export function saveGame(state) {
 
 export function loadGame(state) {
   if (typeof localStorage === 'undefined') return false;
-  const raw = localStorage.getItem(SAVE_KEY) || localStorage.getItem(BACKUP_KEY);
+  let raw = null;
+  try {
+    raw = localStorage.getItem(SAVE_KEY) || localStorage.getItem(BACKUP_KEY);
+  } catch (e) {
+    return false;
+  }
   if (!raw) return false;
   try {
     const parsed = JSON.parse(raw);
