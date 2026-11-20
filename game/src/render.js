@@ -20,6 +20,7 @@ export function createStage(canvas) {
   const scene = new T.Scene();
   scene.fog = new T.Fog(PALETTE.fog, 260, 2400);
   const camera = new T.PerspectiveCamera(62, 16 / 9, 0.5, 6000);
+  camera.up.set(0, 0, 1); // World is Z-up (ground XY, height Z); default Y-up rolls the view 90 deg.
   const hemi = new T.HemisphereLight(0x8a6fd6, 0x2c1a2e, 0.75);
   scene.add(hemi);
   const sun = new T.DirectionalLight(0xffb36b, 1.6);

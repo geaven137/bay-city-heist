@@ -63,7 +63,9 @@ function findClearSpot(state, x0) {
   return x;
 }
 
-// Police in formation behind the player, never stacked.
+// Police in formation for the chase frame: two units flank ahead
+// (a roadblock forming, visible in the chase camera) and two
+// behind in pursuit. Never stacked.
 function lineUpCops(state) {
   const p = state.player;
   const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
@@ -71,11 +73,22 @@ function lineUpCops(state) {
   const fy = Math.sin(p.angle);
   const px = -fy;
   const py = fx;
+  // [ahead(+)/behind(-) along the road, side offset] per unit.
+  // The flanking pair starts far ahead so that, even as the
+  // pursuit pulls them back toward the player, they are still
+  // in the chase camera's frame at screenshot time.
+  const spots = [
+    [250, 32],
+    [320, -34],
+    [-80, 26],
+    [-140, -28],
+  ];
   cops.forEach((car, i) => {
-    const back = 70 + i * 48;
-    const side = (i % 2 === 0 ? -1 : 1) * (20 + (i % 3) * 16);
-    car.x = p.x - fx * back + px * side;
-    car.y = p.y - fy * back + py * side;
+    const spot = spots[i % spots.length];
+    const along = spot[0];
+    const side = spot[1];
+    car.x = p.x + fx * along + px * side;
+    car.y = p.y + fy * along + py * side;
     car.angle = p.angle;
     const spd = Math.abs(p.car ? p.car.speed : 0);
     car.speed = spd * 0.96;
@@ -151,7 +164,7 @@ function stageChase(state) {
   const x = findClearSpot(state, 1560);
   putOnBeach(state, x);
   // Four units, then the helicopter.
-  state.heli = { x: state.player.x - 70, y: state.player.y - 50, z: 150, angle: 0, rotor: 0 };
+  state.heli = { x: state.player.x + 300, y: state.player.y + 50, z: 115, angle: 0, rotor: 0 };
   startMission(state, 2);
   state.missionTimer = 145;
   lineUpCops(state);

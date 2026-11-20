@@ -95,17 +95,19 @@ export function stepCops(state, dt) {
   });
 
   // Air One: up at three stars, hovering with a spotlight.
+  // It tracks from ahead and to the sea side, high enough to see
+  // but low enough to stay in the chase camera's frame.
   if (want >= WANTED.heliAt) {
     if (!state.heli) {
-      state.heli = { x: p.x - 90, y: p.y - 60, z: 150, angle: 0, rotor: 0 };
+      state.heli = { x: p.x + 300, y: p.y + 50, z: 115, angle: 0, rotor: 0 };
     }
     const h = state.heli;
     h.rotor += dt * 22;
-    const hx = p.x + Math.cos(p.angle + Math.PI) * 80;
-    const hy = p.y + Math.sin(p.angle + Math.PI) * 80;
+    const hx = p.x + Math.cos(p.angle) * 300 - Math.sin(p.angle) * 50;
+    const hy = p.y + Math.sin(p.angle) * 300 + Math.cos(p.angle) * 50;
     h.x += (hx - h.x) * Math.min(1, dt * 0.9);
     h.y += (hy - h.y) * Math.min(1, dt * 0.9);
-    h.z += (150 - h.z) * Math.min(1, dt * 1.2);
+    h.z += (115 - h.z) * Math.min(1, dt * 1.2);
     h.angle = Math.atan2(p.y - h.y, p.x - h.x);
   } else if (state.heli) {
     state.heli.z += 60 * dt;
