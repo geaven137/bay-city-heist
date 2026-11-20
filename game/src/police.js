@@ -83,7 +83,7 @@ export function damagePlayer(state, amount, random) {
     state.health = 0;
     state.wasted = true;
     state.endTimer = 0;
-    state.banner = { text: 'WASTED', sub: 'St. Marina Hospital — $100 fee', timer: 999 };
+    state.banner = { text: 'WASTED', sub: `St. Marina Hospital — $${Math.min(state.money, 100)} fee`, timer: 999 };
   }
 }
 

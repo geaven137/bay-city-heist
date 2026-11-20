@@ -698,15 +698,23 @@ export function createRenderer(canvas, hudCanvas) {
       return;
     }
     const speedKmh = state.player.car ? carSpeedKmh(state.player.car) : null;
-    drawHud(hudCtx, state, speedKmh);
-    drawShop(hudCtx, state);
-    if (screen === SCREEN_PLAY) drawCrosshair(hudCtx, state);
+    if (screen === SCREEN_OVER || screen === SCREEN_BUSTED) {
+      // End screens: hide the gameplay HUD behind the panel; dim the scene.
+      hudCtx.fillStyle = 'rgba(8,10,18,0.55)';
+      hudCtx.fillRect(0, 0, VIEW.width, VIEW.height);
+    } else {
+      drawHud(hudCtx, state, speedKmh);
+      drawShop(hudCtx, state);
+      if (screen === SCREEN_PLAY) drawCrosshair(hudCtx, state);
+    }
     if (screen === SCREEN_PAUSED) {
       drawPanel('Paused', ['The city waits for you.', '', 'Progress saves when a job ends.'], 'Press P to resume • S to save now');
     } else if (screen === SCREEN_OVER) {
-      drawPanel('WASTED', ['You woke up at St. Marina Hospital.', 'The doctors kept $100.', `Haul so far: $${state.money}`], 'Press Space or click to play again');
+      const fee = Math.min(state.money, 100); // recover() takes exactly this much
+      drawPanel('WASTED', ['You woke up at St. Marina Hospital.', fee > 0 ? `The doctors kept $${fee}.` : 'The doctors patched you up for free.', `Haul so far: $${state.money - fee}`], 'Press Space or click to play again');
     } else if (screen === SCREEN_BUSTED) {
-      drawPanel('BUSTED', ['The Bayview police took you in.', 'They kept $100 of your money.', `Haul so far: $${state.money}`], 'Press Space or click to play again');
+      const fee = Math.min(state.money, 100); // recover() takes exactly this much
+      drawPanel('BUSTED', ['The Bayview police took you in.', fee > 0 ? `They kept $${fee} of your money.` : 'You had nothing worth taking.', `Haul so far: $${state.money - fee}`], 'Press Space or click to play again');
     }
   }
 

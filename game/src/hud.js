@@ -111,11 +111,13 @@ function drawDispatch(ctx, state) {
     if (car.kind !== 'police') continue;
     const d = Math.hypot(car.x - px, car.y - py);
     const tactic = car.roadblock ? 'ROADBLOCK' : (d < 160 && Math.abs(car.speed) > 120 ? 'RAMMING' : 'PURSUIT');
-    units.push({ name: `UNIT ${String(car.id).padStart(2, '0')}`, d, tactic });
+    units.push({ air: false, d, tactic });
   }
   units.sort((a, b) => a.d - b.d);
-  if (state.wanted >= 3) units.splice(1, 0, { name: 'AIR ONE', d: 180, tactic: 'SPOTLIGHT' });
+  if (state.wanted >= 3) units.splice(1, 0, { air: true, d: 180, tactic: 'SPOTLIGHT' });
   const list = units.slice(0, 4);
+  let n = 0;
+  for (const u of list) u.name = u.air ? 'AIR ONE' : `UNIT ${String((n += 1)).padStart(2, '0')}`;
   if (list.length === 0) return;
   const x = VIEW.width - 268, y = 84;
   panel(ctx, x, y, 244, 24 + list.length * 22);
@@ -188,7 +190,7 @@ function drawDialogue(ctx, state, time) {
   const initials = giver === 'Mara Voss' ? 'MV' : 'R';
   const color = giver === 'Mara Voss' ? PALETTE.neonPink : '#e67e22';
   const line = DIALOGUE[state.mission.index] || '';
-  const x = 24, y = VIEW.height - 268;
+  const x = 220, y = VIEW.height - 268; // clear of the minimap + its NEON BAY label (ends x=196)
   panel(ctx, x, y, 420, 64);
   ctx.fillStyle = color;
   ctx.beginPath(); ctx.arc(x + 32, y + 32, 22, 0, Math.PI * 2); ctx.fill();

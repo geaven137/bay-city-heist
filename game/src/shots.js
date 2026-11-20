@@ -148,6 +148,89 @@ function driveBeach(game, dir) {
   return driveToward(game, dir > 0 ? 3000 : 200, BEACH_Y);
 }
 
+// Beach road (y=2080): buildings north only, sea south — nothing fills the frame.
+function beachStart(game) {
+  const car = game.state.player.car;
+  if (!car) return;
+  car.x = 600; car.y = BEACH_Y; car.angle = 0;
+  car.autoAxis = undefined; car.autoDir = undefined; car.autoX = car.x; car.autoY = car.y;
+  car.speed = 0;
+  const cam = game.state.camera;
+  cam.x = car.x - 120; cam.y = car.y; cam.angle = 0; cam.shoulder = 0; cam.shake = 0;
+}
+
+function beachAligned(game) {
+  const car = game.state.player.car;
+  if (!car) return false;
+  return Math.abs(car.y - BEACH_Y) <= 26 && Math.abs(Math.cos(car.angle)) > 0.9;
+}
+
+function clearAhead(game) {
+  const s = game.state, car = s.player.car;
+  if (!car) return;
+  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
+  for (const c of s.cars) {
+    if (c === car || c.kind === 'police') continue;
+    const dx = c.x - car.x, dy = c.y - car.y;
+    const ahead = dx * fx + dy * fy, lat = -dx * fy + dy * fx;
+    if (ahead > -40 && ahead < 260 && Math.abs(lat) < 60) {
+      c.x = car.x - fx * 300; c.y = car.y - fy * 300;
+    }
+  }
+}
+
+// Final framing: clean beach-road shot even if the sim wedged the car;
+// pins speed to a fast cruise.
+function beachFrame(game, kmh) {
+  const s = game.state, car = s.player.car;
+  if (!car) return;
+  if (!beachAligned(game) || Math.abs(car.speed) < 250) {
+    car.x = 1600; car.y = BEACH_Y; car.angle = 0;
+    car.autoAxis = undefined; car.autoDir = undefined; car.autoX = car.x; car.autoY = car.y;
+    car.speed = kmh / 0.36;
+    s.camera.x = car.x - 120; s.camera.y = car.y; s.camera.angle = 0;
+    s.camera.shoulder = 0; s.camera.shake = 0;
+  } else if (car.speed < kmh / 0.36) {
+    car.speed = kmh / 0.36;
+  }
+  clearAhead(game);
+}
+
+// Trail formation behind the player car (after a re-place, the loop's
+// trailPolice spots no longer apply).
+function stagePolice(game) {
+  const s = game.state, car = s.player.car;
+  if (!car) return;
+  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
+  const px = -fy, py = fx;
+  let i = 0;
+  for (const c of s.cars) {
+    if (c.kind !== 'police') continue;
+    const back = 170 + i * 70; // each cop its own slot — never two on one spot
+    let placed = false;
+    for (const lat of (i % 2 === 0 ? [72, -72, 0] : [-72, 72, 0])) {
+      const nx = car.x - fx * back + px * lat;
+      const ny = car.y - fy * back + py * lat;
+      if (hitsBuilding(s.city, nx, ny, 20)) continue;
+      c.x = nx; c.y = ny; c.angle = car.angle; c.speed = Math.max(c.speed, 330);
+      placed = true; break;
+    }
+    if (!placed) { c.x = car.x - fx * back; c.y = car.y - fy * back; c.angle = car.angle; c.speed = 330; }
+    i += 1;
+  }
+}
+
+// Square the camera back on the road axis; clearShot's lamp dodge can
+// sidestep it off-road.
+function reframeCamera(g) {
+  const s = g.state, cam = s.camera;
+  const p = s.player, tx = p.car ? p.car.x : p.x, ty = p.car ? p.car.y : p.y;
+  const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
+  let dist = 120;
+  while (dist > 30 && hitsBuilding(s.city, tx - fx * dist, ty - fy * dist, 14)) dist -= 12;
+  cam.x = tx - fx * dist; cam.y = ty - fy * dist;
+}
+
 function clearShot(g) {
   const s = g.state, c = s.camera, fx = Math.cos(c.angle), fy = Math.sin(c.angle);
   for (const p of s.peds) {
@@ -175,6 +258,7 @@ export function stageShot(name, game) {
   const { state, random } = game;
   if (name === 'play' || name === 'chase') {
     stealNearestCar(game, 14);
+    beachStart(game);
     if (name === 'play') {
       let fast = 0, dir = 1;
       const steps = Math.floor(PLAY_SECONDS / STEP);
@@ -184,11 +268,15 @@ export function stageShot(name, game) {
         stepGame(game, STEP, game.state.player.car ? driveBeach(game, dir) : idleInput(), null, false);
         if (game.state.wasted || game.state.busted) break;
         const c = game.state.player.car;
-        fast = c && Math.abs(c.speed) > 220 ? fast + 1 : 0;
+        fast = c && beachAligned(game) && Math.abs(c.speed) > 220 ? fast + 1 : 0;
         if (fast >= 12) break;
       }
+      beachFrame(game, 155);
+      stagePolice(game);
       spreadPolice(game);
       clearShot(game);
+      reframeCamera(game);
+      state.banner = null; // drop the WANTED banner so the play frame is clean
       return { screen: SCREEN_PLAY, best: state.money };
     }
     startMission(state, random, 3);
@@ -203,11 +291,14 @@ export function stageShot(name, game) {
       trailPolice(game);
       if (game.state.wasted || game.state.busted) break;
       const c = game.state.player.car;
-      fast = c && Math.abs(c.speed) > 250 ? fast + 1 : 0;
+      fast = c && beachAligned(game) && Math.abs(c.speed) > 250 ? fast + 1 : 0;
       if (fast >= 12 && elapsed > 5) break;
     }
+    beachFrame(game, 160);
+    stagePolice(game);
     spreadPolice(game);
     clearShot(game);
+    reframeCamera(game);
     state.banner = null; // drop the fading WANTED banner so the chase frame is clean
     return { screen: SCREEN_PLAY, best: state.money };
   }
@@ -267,6 +358,7 @@ export function stageShot(name, game) {
           }
         }
         clearShot(game);
+        state.banner = null; // no stale banner over the end panel
         return { screen: SCREEN_BUSTED, best: state.money };
       }
     }

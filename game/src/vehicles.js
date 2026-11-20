@@ -11,7 +11,7 @@ export function carSpeedKmh(car) { return Math.abs(car.speed) * 0.36; }
 
 export function makeCar(random, x, y, angle, kind, color) {
   return {
-    id: nextCarId, x, y, angle, speed: 0, kind, // 'traffic' | 'police' | 'player'
+    id: nextCarId++, x, y, angle, speed: 0, kind, // 'traffic' | 'police' | 'player'
     color: color || PALETTE.traffic[Math.floor(random() * PALETTE.traffic.length)],
     health: CAR.health, driver: kind === 'traffic' ? 'ai' : null,
     axis: 'x', dir: 1, targetSpeed: CAR.trafficSpeed, brakeTimer: 0,
