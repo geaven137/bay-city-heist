@@ -1,151 +1,285 @@
-import { CITY } from './config.js';
+// Neon Bay — the Palmera fleet.
+// Three planes that cross the sky, four fire trucks, an ambulance
+// and three motorcycles, all built from boxes and cylinders in
+// this file's own style. Wheels spin, propellers turn, turbines
+// whir and beacons flash; the animation hooks live on each rig
+// under userData.spin.
 
-export const FLEET_KINDS = [
-  'pumper', 'ladder', 'rescue', 'arff', 'ambulance',
-  'moto-sport', 'moto-cruiser', 'moto-enduro',
+import { tyre, spawnCar } from './vehicles.js';
+
+export const RIG_KINDS = [
+  'prop', 'twinjet', 'jet',
+  'pumper', 'ladder', 'rescue', 'arff',
+  'ambulance',
+  'sport', 'cruiser', 'enduro',
 ];
-export const FLEET_COLOR = {
-  pumper: '#dc2626', ladder: '#dc2626', rescue: '#b91c1c', arff: '#eab308',
-  ambulance: '#f8fafc', 'moto-sport': '#ef4444', 'moto-cruiser': '#1e293b', 'moto-enduro': '#f97316',
-};
 
-export function pickFleetKind(random) {
-  const r = random();
-  if (r < 0.15) return FLEET_KINDS[Math.floor(random() * 5)];
-  if (r < 0.3) return FLEET_KINDS[5 + Math.floor(random() * 3)];
-  return null;
-}
-
-function mat(THREE, color) {
-  return new THREE.MeshLambertMaterial({ color });
-}
-function box(THREE, parent, w, h, d, x, y, z, color, ry) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(THREE, color));
-  m.position.set(x, y, z);
-  if (ry) m.rotation.y = ry;
-  m.castShadow = true;
-  parent.add(m);
-  return m;
-}
-function tube(THREE, parent, r, len, x, y, z, color, seg) {
-  const geo = new THREE.CylinderGeometry(r, r, len, seg || 12);
-  geo.rotateX(Math.PI / 2);
-  const m = new THREE.Mesh(geo, mat(THREE, color));
-  m.position.set(x, y, z);
-  m.castShadow = true;
-  parent.add(m);
-  return m;
-}
-
-function buildProp(THREE) {
-  const g = new THREE.Group();
-  tube(THREE, g, 0.7, 6.6, 0, 1.3, 0, 0xf8fafc, 14);
-  box(THREE, g, 1.4, 0.2, 6.2, 0, 1.3, 0, 0x0284c7);
-  box(THREE, g, 1.2, 0.5, 1.6, 0, 1.8, 0.5, 0x1e293b);
-  box(THREE, g, 10.4, 0.16, 1.6, 0, 2.05, 0.35, 0xf8fafc);
-  box(THREE, g, 0.14, 1.8, 1.2, 0, 2.1, -3, 0x0284c7);
-  box(THREE, g, 3.3, 0.12, 0.9, 0, 1.4, -3.1, 0xf8fafc);
-  const prop = new THREE.Group();
-  prop.position.set(0, 1.3, 3.5);
-  const hub = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.65, 10), mat(THREE, 0x1e293b));
-  hub.rotation.x = Math.PI / 2;
-  prop.add(hub);
-  const blade = box(THREE, prop, 2.5, 0.22, 0.06, 0, 0, 0.05, 0x0f172a);
-  g.add(prop);
-  return { group: g, spin: [prop], blades: [blade] };
-}
-
-function buildJet(THREE) {
-  const g = new THREE.Group();
-  tube(THREE, g, 1.6, 15, 0, 2.6, 0, 0xf1f5f9, 18);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(1.6, 18, 12), mat(THREE, 0xf1f5f9));
-  nose.position.set(0, 2.6, 7.5); nose.scale.set(1, 1, 1.35); g.add(nose);
-  tube(THREE, g, 1.6, 4, 0, 2.7, -9.5, 0xf1f5f9, 14);
-  box(THREE, g, 3.3, 0.35, 14, 0, 2.3, 0.4, 0x1d4ed8);
-  box(THREE, g, 11.2, 0.28, 3.1, -6, 2.2, -0.4, 0xf1f5f9, 0.32);
-  box(THREE, g, 11.2, 0.28, 3.1, 6, 2.2, -0.4, 0xf1f5f9, -0.32);
-  const fans = [];
-  for (const x of [-4.5, 4.5]) {
-    const nac = new THREE.Group();
-    nac.position.set(x, 1.5, 0.35);
-    tube(THREE, nac, 0.7, 2.2, 0, 0, 0, 0x334155, 14);
-    const fan = box(THREE, nac, 1.1, 0.14, 0.12, 0, 0, 1, 0xe2e8f0);
-    g.add(nac);
-    fans.push(fan);
+function skin(color, rough, metal, glow, glowColor) {
+  const T = globalThis.THREE;
+  const m = new T.MeshStandardMaterial({ color, roughness: rough ?? 0.4, metalness: metal ?? 0.3 });
+  if (glow) {
+    m.emissive = new T.Color(glowColor ?? color);
+    m.emissiveIntensity = glow;
   }
-  box(THREE, g, 0.35, 4.3, 2.7, 0, 5, -9.2, 0x1d4ed8);
-  box(THREE, g, 7.4, 0.22, 1.7, 0, 3.1, -10, 0xf1f5f9);
-  return { group: g, spin: fans, blades: [] };
+  return m;
 }
 
-function buildPrivate(THREE) {
-  const g = new THREE.Group();
-  tube(THREE, g, 0.95, 10, 0, 1.6, 0, 0xffffff, 16);
-  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.95, 16, 12), mat(THREE, 0xffffff));
-  nose.position.set(0, 1.6, 5); nose.scale.set(1, 1, 1.45); g.add(nose);
-  tube(THREE, g, 0.9, 3.1, 0, 1.8, -6.4, 0xffffff, 12);
-  box(THREE, g, 1.9, 0.14, 9.4, 0, 1.5, 0.2, 0xf59e0b);
-  box(THREE, g, 6.6, 0.18, 1.7, -3.7, 1.4, 0.3, 0xffffff, 0.38);
-  box(THREE, g, 6.6, 0.18, 1.7, 3.7, 1.4, 0.3, 0xffffff, -0.38);
-  tube(THREE, g, 0.42, 1.8, -1.2, 2.2, -4.3, 0x1e293b, 12);
-  tube(THREE, g, 0.42, 1.8, 1.2, 2.2, -4.3, 0x1e293b, 12);
-  box(THREE, g, 0.24, 2.6, 1.7, 0, 3, -6.1, 0xf59e0b);
-  box(THREE, g, 4.1, 0.14, 1.1, 0, 4.2, -6.7, 0xffffff);
-  return { group: g, spin: [], blades: [] };
+function bolt(parent, geo, material, x, y, z, rx, ry, rz) {
+  const T = globalThis.THREE;
+  const mesh = new T.Mesh(geo, material);
+  mesh.position.set(x, y, z);
+  if (rx || ry || rz) mesh.rotation.set(rx || 0, ry || 0, rz || 0);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  parent.add(mesh);
+  return mesh;
 }
 
-function buildStrip(THREE, scene) {
-  const strip = new THREE.Mesh(
-    new THREE.PlaneGeometry(2400, 46),
-    new THREE.MeshLambertMaterial({ color: 0x2b2f3a }),
-  );
-  strip.rotation.x = -Math.PI / 2;
-  strip.position.set(CITY.width / 2, 0.6, CITY.beachY + 42);
-  strip.receiveShadow = true;
-  scene.add(strip);
-  const barMat = new THREE.MeshBasicMaterial({ color: 0xe8ecf2 });
-  for (const x of [260, 2940]) {
-    for (let k = -2; k <= 2; k += 1) {
-      const bar = new THREE.Mesh(new THREE.PlaneGeometry(26, 4), barMat);
-      bar.rotation.x = -Math.PI / 2;
-      bar.position.set(x, 0.8, CITY.beachY + 42 + k * 8);
-      scene.add(bar);
+function freshSpin() {
+  return { props: [], fans: [], wheels: [], beacons: [], ladder: null, boom: null, turret: null };
+}
+
+function addWheels(root, spin, spots, radius, width) {
+  for (const [x, y, z] of spots) {
+    const w = tyre(radius, width);
+    w.position.set(x, y, z);
+    root.add(w);
+    spin.wheels.push(w);
+  }
+}
+
+export function craftRig(kind) {
+  const T = globalThis.THREE;
+  const root = new T.Group();
+  root.userData.kind = kind;
+  const spin = freshSpin();
+  root.userData.spin = spin;
+
+  if (kind === 'prop') {
+    const white = skin(0xf4f7fa, 0.35, 0.35);
+    const stripe = skin(0x0e7490, 0.4, 0.3);
+    const glass = skin(0x17263b, 0.1, 0.85);
+    const bodyGeo = new T.CylinderGeometry(0.66, 0.52, 6.4, 16);
+    bodyGeo.rotateX(Math.PI / 2);
+    bolt(root, bodyGeo, white, 0, 0, 1.2);
+    bolt(root, new T.BoxGeometry(1.36, 0.2, 6.0), stripe, 0, 0, 1.2);
+    bolt(root, new T.BoxGeometry(1.1, 0.48, 1.5), glass, 0, 0.5, 0.6, 0.1, 0, 0);
+    bolt(root, new T.BoxGeometry(9.8, 0.14, 1.5), white, 0, 0.72, 0.3);
+    bolt(root, new T.BoxGeometry(9.8, 0.05, 1.55), stripe, 0, 0.8, 0.3);
+    bolt(root, new T.BoxGeometry(0.13, 1.7, 1.1), stripe, 0, 0.8, -2.8, -0.2, 0, 0);
+    bolt(root, new T.BoxGeometry(3.1, 0.11, 0.9), white, 0, 0.1, -2.9);
+    const prop = new T.Group();
+    prop.position.set(0, 0, 4.6);
+    bolt(prop, new T.ConeGeometry(0.24, 0.6, 12), skin(0x1e293b, 0.4, 0.7), 0, 0, 0.2, Math.PI / 2, 0, 0);
+    bolt(prop, new T.BoxGeometry(2.3, 0.2, 0.06), skin(0x0f172a, 0.5, 0.3), 0, 0, 0.05);
+    root.add(prop);
+    spin.props.push(prop);
+    addWheels(root, spin, [[0, 0.3, 2.0], [-1.25, 0.35, 0.1], [1.25, 0.35, 0.1]], 0.34, 0.18);
+  } else if (kind === 'twinjet') {
+    const hull = skin(0xeef2f6, 0.3, 0.4);
+    const livery = skin(0x1e40af, 0.35, 0.3);
+    const engine = skin(0x334155, 0.35, 0.75);
+    const fuseGeo = new T.CylinderGeometry(1.5, 1.5, 14.5, 22);
+    fuseGeo.rotateX(Math.PI / 2);
+    bolt(root, fuseGeo, hull, 0, 0, 2.4);
+    bolt(root, new T.SphereGeometry(1.5, 22, 14), hull, 0, 0, 9.6, 0, 0, 0, 1, 1, 1.3);
+    const tailGeo = new T.CylinderGeometry(1.5, 0.5, 3.8, 18);
+    tailGeo.rotateX(-Math.PI / 2);
+    bolt(root, tailGeo, hull, 0, 0.15, -6.4);
+    bolt(root, new T.BoxGeometry(3.04, 0.32, 13.5), livery, 0, -0.25, 2.4);
+    bolt(root, new T.BoxGeometry(10.8, 0.26, 3.0), hull, -5.8, -0.35, 0.2, 0, 0.3, -0.04);
+    bolt(root, new T.BoxGeometry(10.8, 0.26, 3.0), hull, 5.8, -0.35, 0.2, 0, -0.3, 0.04);
+    for (const ex of [-4.3, 4.3]) {
+      const nac = new T.Group();
+      nac.position.set(ex, -1.0, 0.6);
+      const podGeo = new T.CylinderGeometry(0.66, 0.62, 2.1, 16);
+      podGeo.rotateX(Math.PI / 2);
+      bolt(nac, podGeo, engine);
+      const fan = bolt(nac, new T.BoxGeometry(1.05, 0.12, 0.1), skin(0xe2e8f0, 0.2, 0.9), 0, 0, 1.0);
+      root.add(nac);
+      spin.fans.push(fan);
     }
+    bolt(root, new T.BoxGeometry(0.32, 4.0, 2.6), livery, 0, 2.4, -6.2, -0.4, 0, 0);
+    bolt(root, new T.BoxGeometry(7.0, 0.2, 1.7), hull, 0, 0.5, -7.0);
+    addWheels(root, spin, [[0, 0.5, 5.2], [-2.2, 0.62, -0.6], [2.2, 0.62, -0.6]], 0.6, 0.34);
+  } else if (kind === 'jet') {
+    const white = skin(0xffffff, 0.2, 0.45);
+    const gold = skin(0xd97706, 0.3, 0.7);
+    const dark = skin(0x1e293b, 0.25, 0.7);
+    const bodyGeo = new T.CylinderGeometry(0.88, 0.82, 9.4, 18);
+    bodyGeo.rotateX(Math.PI / 2);
+    bolt(root, bodyGeo, white, 0, 0, 1.5);
+    bolt(root, new T.SphereGeometry(0.88, 18, 12), white, 0, 0, 6.2, 0, 0, 0, 1, 1, 1.4);
+    const tailGeo = new T.CylinderGeometry(0.82, 0.32, 2.9, 14);
+    tailGeo.rotateX(-Math.PI / 2);
+    bolt(root, tailGeo, white, 0, 0.2, -4.8);
+    bolt(root, new T.BoxGeometry(1.8, 0.13, 8.8), gold, 0, -0.1, 1.5);
+    bolt(root, new T.BoxGeometry(6.3, 0.16, 1.6), white, -3.5, -0.2, 0.4, 0, 0.35, -0.05);
+    bolt(root, new T.BoxGeometry(6.3, 0.16, 1.6), white, 3.5, -0.2, 0.4, 0, -0.35, 0.05);
+    for (const ex of [-1.15, 1.15]) {
+      const engGeo = new T.CylinderGeometry(0.38, 0.36, 1.7, 14);
+      engGeo.rotateX(Math.PI / 2);
+      bolt(root, engGeo, dark, ex, 0.55, -2.6);
+    }
+    bolt(root, new T.BoxGeometry(0.22, 2.5, 1.6), gold, 0, 1.4, -4.6, -0.32, 0, 0);
+    bolt(root, new T.BoxGeometry(3.9, 0.13, 1.0), white, 0, 2.6, -5.1);
+    addWheels(root, spin, [[0, 0.33, 3.3], [-1.4, 0.38, -0.3], [1.4, 0.38, -0.3]], 0.38, 0.22);
+  } else if (kind === 'pumper' || kind === 'ladder' || kind === 'rescue' || kind === 'arff') {
+    const isArff = kind === 'arff';
+    const body = skin(isArff ? 0xd9a514 : 0xc1272d, 0.32, 0.4);
+    const chrome = skin(0xe2e8f0, 0.2, 0.9);
+    const redB = skin(0xef4444, 0.4, 0.2, 1.5, 0xef4444);
+    const whiteB = skin(0xffffff, 0.4, 0.2, 1.3, 0xffffff);
+    const len = kind === 'ladder' ? 7.6 : isArff ? 7.0 : 6.0;
+    const wid = isArff ? 2.7 : 2.3;
+    bolt(root, new T.BoxGeometry(wid, 1.25, 2.0), body, 0, 0, len * 0.32);
+    bolt(root, new T.BoxGeometry(wid - 0.04, 1.45, len * 0.62), body, 0, 0.1, -len * 0.12);
+    bolt(root, new T.BoxGeometry(wid + 0.06, 0.11, len * 0.64), chrome, 0, -0.62, -len * 0.12);
+    const s1 = bolt(root, new T.BoxGeometry(0.42, 0.18, 0.28), redB, -0.5, 0.78, len * 0.32);
+    const s2 = bolt(root, new T.BoxGeometry(0.42, 0.18, 0.28), whiteB, 0.5, 0.78, len * 0.32);
+    spin.beacons.push(s1, s2);
+    if (kind === 'ladder') {
+      const table = new T.Group();
+      table.position.set(0, 0.9, -0.4);
+      const boom = new T.Group();
+      boom.position.set(0, 0.12, 0);
+      boom.rotation.x = -0.35;
+      bolt(boom, new T.BoxGeometry(0.3, 0.26, 5.2), chrome, 0, 0.12, -2.0);
+      bolt(boom, new T.BoxGeometry(0.22, 0.18, 4.4), body, 0, 0.3, -2.4);
+      table.add(boom);
+      root.add(table);
+      spin.ladder = table;
+      spin.boom = boom;
+    }
+    if (kind === 'rescue') {
+      bolt(root, new T.BoxGeometry(wid + 0.12, 0.85, 2.2), chrome, 0, 0.05, -0.3);
+      bolt(root, new T.BoxGeometry(0.15, 1.1, 0.15), chrome, 0, 1.4, -1.6);
+    }
+    if (isArff) {
+      const turret = new T.Group();
+      turret.position.set(0, 0.92, 1.4);
+      bolt(turret, new T.BoxGeometry(0.4, 0.32, 1.0), chrome, 0, 0.08, 0.28);
+      root.add(turret);
+      spin.turret = turret;
+    }
+    const wr = isArff ? 0.58 : 0.46;
+    const wz = kind === 'ladder' ? [2.4, -1.1, -2.9] : [1.9, -1.8];
+    for (const z of wz) {
+      addWheels(root, spin, [[-wid * 0.52, 0, z], [wid * 0.52, 0, z]], wr, 0.36);
+    }
+  } else if (kind === 'ambulance') {
+    const white = skin(0xf8fafc, 0.3, 0.25);
+    const med = skin(0xdc2626, 0.35, 0.3);
+    const blueB = skin(0x2563eb, 0.4, 0.2, 1.4, 0x2563eb);
+    bolt(root, new T.BoxGeometry(2.0, 0.8, 1.9), white, 0, -0.42, 1.5);
+    bolt(root, new T.BoxGeometry(2.08, 1.45, 3.4), white, 0, 0.08, -1.0);
+    bolt(root, new T.BoxGeometry(2.12, 0.22, 3.45), med, 0, 0.1, -1.0);
+    bolt(root, new T.BoxGeometry(2.14, 0.52, 0.17), med, 0, 0.3, -1.0);
+    bolt(root, new T.BoxGeometry(2.14, 0.17, 0.52), med, 0, 0.3, -1.0);
+    const st = bolt(root, new T.BoxGeometry(0.85, 0.18, 0.26), blueB, 0, 0.92, 1.7);
+    spin.beacons.push(st);
+    addWheels(root, spin, [[-1.0, 0, 1.7], [1.0, 0, 1.7], [-1.0, 0, -1.6], [1.0, 0, -1.6]], 0.4, 0.28);
+  } else {
+    // Motorcycles: sport, cruiser, enduro.
+    const paintMap = { sport: 0xdc2626, cruiser: 0x1e293b, enduro: 0xea580c };
+    const bike = skin(paintMap[kind] ?? 0xdc2626, 0.28, 0.6);
+    const chrome = skin(0xd4d4d8, 0.2, 0.9);
+    const seat = skin(0x18181b, 0.85, 0.05);
+    const seatY = kind === 'enduro' ? 0.9 : kind === 'cruiser' ? 0.62 : 0.72;
+    const wheelR = kind === 'enduro' ? 0.4 : 0.33;
+    bolt(root, new T.BoxGeometry(0.4, 0.32, 1.05), bike, 0, seatY + 0.12, 0.12);
+    bolt(root, new T.BoxGeometry(0.34, 0.13, 0.72), seat, 0, seatY + 0.05, -0.5);
+    bolt(root, new T.BoxGeometry(0.78, 0.06, 0.09), chrome, 0, seatY + 0.32, 0.5);
+    if (kind === 'sport') {
+      bolt(root, new T.BoxGeometry(0.46, 0.4, 0.7), bike, 0, seatY + 0.06, 0.66, 0.42, 0, 0);
+    } else if (kind === 'cruiser') {
+      bolt(root, new T.BoxGeometry(0.11, 0.42, 0.11), chrome, 0, seatY + 0.48, 0.5);
+      const pipeGeo = new T.CylinderGeometry(0.11, 0.11, 1.15, 10);
+      pipeGeo.rotateX(Math.PI / 2);
+      bolt(root, pipeGeo, chrome, 0.26, 0.4, -0.32);
+    } else {
+      bolt(root, new T.BoxGeometry(0.3, 0.09, 0.42), bike, 0, wheelR * 2 + 0.1, 0.76, 0.22, 0, 0);
+    }
+    addWheels(root, spin, [[0, 0, 0.88], [0, 0, -0.85]], wheelR, 0.15);
   }
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.4, 30, 6), mat(THREE, 0x8a8f9a));
-  pole.position.set(240, 15, CITY.beachY + 10);
-  scene.add(pole);
-  const sock = new THREE.Mesh(new THREE.ConeGeometry(3, 12, 8), mat(THREE, 0xff5a5a));
-  sock.rotation.z = Math.PI / 2;
-  sock.position.set(246, 29, CITY.beachY + 10);
-  scene.add(sock);
+  return root;
 }
 
-export function createFleet(THREE, scene) {
-  buildStrip(THREE, scene);
-  const lanes = [
-    { build: buildProp, y: 1000, h: 320, speed: 130, off: 1500, dir: 1, scale: 1 },
-    { build: buildJet, y: 1450, h: 430, speed: 210, off: 400, dir: -1, scale: 1.6 },
-    { build: buildPrivate, y: 620, h: 380, speed: 170, off: 2600, dir: 1, scale: 1.2 },
-  ];
-  const planes = lanes.map((lane) => {
-    const made = lane.build(THREE);
-    made.group.scale.setScalar(lane.scale);
-    scene.add(made.group);
-    return { ...lane, ...made };
+export function animateRig(rig, dt, elapsed, speed) {
+  const spin = rig && rig.userData ? rig.userData.spin : null;
+  if (!spin) return;
+  for (const p of spin.props) p.rotation.z += dt * 34;
+  for (const f of spin.fans) f.rotation.z += dt * 26;
+  for (const w of spin.wheels) w.rotation.y += dt * (speed || 4);
+  spin.beacons.forEach((b, i) => {
+    const pulse = Math.sin(elapsed * 13 + i * Math.PI);
+    if (b.material && b.material.emissiveIntensity !== undefined) {
+      b.material.emissiveIntensity = pulse > 0 ? 1.8 : 0.25;
+    }
   });
-  let t = 0;
-  const SPAN = 4000;
-  return {
-    update(dt, time, state) {
-      t += dt;
-      for (const pl of planes) {
-        const raw = (pl.off + t * pl.speed * pl.dir) % SPAN;
-        const x = (raw < 0 ? raw + SPAN : raw) - 400;
-        pl.group.position.set(x, pl.h, pl.y);
-        pl.group.rotation.y = pl.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-        for (const s of pl.spin) s.rotation.z += dt * 30;
+  if (spin.ladder) spin.ladder.rotation.y = Math.sin(elapsed * 0.7) * 0.4;
+  if (spin.boom) spin.boom.rotation.x = -0.35 + Math.sin(elapsed * 1.05) * 0.14;
+  if (spin.turret) spin.turret.rotation.y = Math.sin(elapsed * 1.3) * 0.5;
+}
+
+export function spawnFleet(state) {
+  const rng = state.rng;
+  state.fleet = { planes: [] };
+  const planeKinds = ['prop', 'twinjet', 'jet'];
+  for (let i = 0; i < 3; i++) {
+    state.fleet.planes.push({
+      kind: planeKinds[i],
+      x: rng.range(-900, 900),
+      y: rng.range(700, 2000),
+      z: 130 + i * 28,
+      angle: rng.pick([0, Math.PI]),
+      speed: 95 + i * 18,
+      mesh: null,
+      rig: null,
+    });
+  }
+  const ground = [
+    ['pumper', 1420, 1820, 0],
+    ['ladder', 1560, 1820, 0],
+    ['rescue', 1640, 1820, 0],
+    ['arff', 1720, 1820, 0],
+    ['ambulance', 480, 1460, Math.PI / 2],
+  ];
+  for (const [kind, x, y, a] of ground) {
+    const car = spawnCar(state, kind, x, y, a);
+    car.targetSpeed = 0;
+    state.cars.push(car);
+  }
+  const motoKinds = ['sport', 'cruiser', 'enduro'];
+  for (let i = 0; i < 3; i++) {
+    const car = spawnCar(state, motoKinds[i], 700 + i * 260, 2080, 0);
+    car.targetSpeed = 30 + i * 6;
+    car.speed = car.targetSpeed;
+    state.cars.push(car);
+  }
+}
+
+export function stepFleet(state, dt) {
+  for (const pl of state.fleet.planes) {
+    pl.x += Math.cos(pl.angle) * pl.speed * dt;
+    pl.y += Math.sin(pl.angle) * pl.speed * dt;
+    if (pl.x > 2300 || pl.x < -1100 || pl.y > 2400 || pl.y < -1200) {
+      pl.angle += Math.PI;
+      pl.x = Math.max(-1000, Math.min(2200, pl.x));
+      pl.y = Math.max(-1100, Math.min(2300, pl.y));
+    }
+    if (pl.rig) animateRig(pl.rig, dt, state.time, pl.speed);
+  }
+  for (const car of state.cars) {
+    if (car.kind === 'sport' || car.kind === 'cruiser' || car.kind === 'enduro') {
+      car.speed += Math.max(-260 * dt, Math.min(260 * dt, car.targetSpeed - car.speed));
+      car.x += Math.cos(car.angle) * car.speed * dt;
+      car.y += Math.sin(car.angle) * car.speed * dt;
+      if (car.x > 2100 || car.x < 480) {
+        car.angle += Math.PI;
+        car.x = Math.max(480, Math.min(2100, car.x));
       }
-    },
-  };
+    }
+    if (car.rig) animateRig(car.rig, dt, state.time, car.speed);
+  }
 }

@@ -1,110 +1,151 @@
-import { CAR, WANTED } from './config.js';
-import { HL } from './patchkit.js';
-import { collideCarWithCity, driveCar, spawnPoliceCar } from './vehicles.js';
-import { atIntersection, nearestIntersection } from './world.js';
+// Neon Bay — the wanted level, the pursuit and Air One.
+// Heat only rises when someone sees the crime. The more stars,
+// the more units answer, and at three stars the helicopter
+// comes up with its spotlight.
 
-export function wantedStars(state) {
-  return Math.min(WANTED.maxStars, state.wanted);
-}
+import { WANTED, CARS } from './config.js';
+import { witnessedBy } from './pedestrians.js';
 
-export function addWanted(state, points, x, y, crime) {
-  if (points <= 0) return;
-  if (crime && crime !== 'alarm' && !HL.Wanted.seen(state, crime, x, y)) return;
-  state.wantedPoints += points;
-  state.wanted = Math.min(WANTED.maxStars, state.wantedPoints);
-  state.unseenTimer = 0;
-  if (state.wanted > 0 && state.banner === null) {
-    state.banner = { text: `WANTED — ${'★'.repeat(state.wanted)}`, sub: 'Lose the cops', timer: 1.6 };
+export function raiseHeat(state, amount, x, y) {
+  if (state.end) return;
+  if (!witnessedBy(state, x, y)) return;
+  state.heat = Math.min(WANTED.max, state.heat + amount);
+  state.wanted = Math.ceil(state.heat);
+  if (state.wanted > 0 && !state.banner) {
+    showBanner(state, 'WANTED', 'Lose the cops');
   }
 }
 
-export function copsWanted(state) {
-  return Math.min(WANTED.maxCops, state.wanted * 2 + HL.Profile.copBonus());
+export function showBanner(state, text, sub) {
+  state.banner = { text, sub: sub || '', timer: 3.2 };
 }
 
-export function maintainPolice(state, random) {
-  const want = copsWanted(state);
-  const cops = state.cars.filter((c) => c.kind === 'police');
-  const p = state.player;
-  for (const cop of cops) {
-    if (cop.roadblock) continue;
-    if (Math.hypot(cop.x - p.x, cop.y - p.y) > 1600) {
-      cop.x = Math.max(60, Math.min(state.city.width - 60, p.x + (random() < 0.5 ? -1 : 1) * (600 + random() * 300)));
-      cop.y = Math.max(60, Math.min(state.city.height - 60, p.y + (random() - 0.5) * 600));
+export function hideBanner(state) {
+  state.banner = null;
+}
+
+export function stepCops(state, dt) {
+  // Heat fades when the player is out of sight and slow.
+  const hidden = state.player.onFoot && state.player.speed < 20;
+  const fade = (hidden ? WANTED.hidePerSec : WANTED.decayPerSec) * dt;
+  if (state.heat > 0) {
+    state.heat = Math.max(0, state.heat - fade);
+    state.wanted = Math.ceil(state.heat);
+  }
+  if (state.banner) {
+    state.banner.timer -= dt;
+    if (state.banner.timer <= 0) state.banner = null;
+  }
+
+  // How many units the stars call for.
+  const want = state.wanted;
+  const need = want === 0 ? 0 : want <= 2 ? 2 : want <= 4 ? 3 : 4;
+  const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
+  while (cops.length < need) {
+    const car = spawnCop(state, cops.length);
+    state.cars.push(car);
+    cops.push(car);
+  }
+  // Retire extras when the heat drops.
+  for (let i = cops.length - 1; i >= need; i--) {
+    const car = cops[i];
+    car.retire = true;
+    car.targetSpeed = CARS.policeTop;
+    if (Math.hypot(car.x - state.player.x, car.y - state.player.y) > 700) {
+      state.cars.splice(state.cars.indexOf(car), 1);
+      cops.splice(i, 1);
     }
   }
-  for (let i = cops.length; i < want; i += 1) spawnPoliceCar(state, random, p.x, p.y);
-  if (want === 0) state.cars = state.cars.filter((c) => c.kind !== 'police');
-}
-
-export function updatePoliceCar(state, cop, dt, random) {
-  if (cop.roadblock) { cop.speed *= Math.max(0, 1 - 4 * dt); return; }
+  // Pursuit steering: each unit chases the player, offset to the side.
   const p = state.player;
-  const tx = p.car ? p.car.x : p.x;
-  const ty = p.car ? p.car.y : p.y;
-  const dist = Math.hypot(tx - cop.x, ty - cop.y);
-  let diff = Math.atan2(ty - cop.y, tx - cop.x) - cop.angle;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  driveCar(cop, dt, dist > 60 ? 1 : 0.4, Math.max(-1, Math.min(1, diff * 2.4)), false);
-  if (collideCarWithCity(state, cop)) cop.speed *= 0.5;
-  if (atIntersection(cop.x, cop.y, 40)) {
-    const node = nearestIntersection(cop.x, cop.y);
-    const dx = tx - node.x, dy = ty - node.y;
-    const horizontal = Math.abs(dx) > Math.abs(dy);
-    const targetAngle = horizontal ? (dx > 0 ? 0 : Math.PI) : (dy > 0 ? Math.PI / 2 : -Math.PI / 2);
-    let d2 = targetAngle - cop.angle;
-    while (d2 > Math.PI) d2 -= Math.PI * 2;
-    while (d2 < -Math.PI) d2 += Math.PI * 2;
-    cop.angle += d2 * Math.min(1, dt * 6);
-  }
-  if (dist < 46 && p.onFoot) {
-    if (Math.abs(cop.speed) < 60) {
-      cop.bustTimer = (cop.bustTimer || 0) + dt;
-      if (cop.bustTimer > 1.2) { state.busted = true; state.endTimer = 0; }
-    } else cop.bustTimer = 0;
-  } else cop.bustTimer = 0;
-  if (dist < 50 && p.car && Math.abs(cop.speed) > 120) {
-    cop.speed *= 0.5;
-    damagePlayer(state, 6, random);
-  }
-  if (random() < dt * 0.5) cop.sirenPhase = (cop.sirenPhase || 0) + 1;
-}
-
-export function damagePlayer(state, amount, random) {
-  const p = state.player;
-  if (p.hurtTimer > 0 || state.wasted || state.busted) return;
-  p.hurtTimer = 0.6;
-  p.regenTimer = 0;
-  state.health -= amount;
-  state.flash = Math.min(1, state.flash + 0.5);
-  state.camera.shake = Math.max(state.camera.shake, 7);
-  if (state.health <= 0) {
-    state.health = 0;
-    state.wasted = true;
-    state.endTimer = 0;
-    state.banner = { text: 'WASTED', sub: `St. Marina Hospital — $${Math.min(state.money, 100)} fee`, timer: 999 };
-  }
-}
-
-export function updateWanted(state, dt) {
-  if (state.wanted === 0) return;
-  const p = state.player;
-  const px = p.car ? p.car.x : p.x;
-  const py = p.car ? p.car.y : p.y;
-  let seen = false;
-  for (const cop of state.cars) {
-    if (cop.kind !== 'police') continue;
-    if (Math.hypot(cop.x - px, cop.y - py) < 520) { seen = true; break; }
-  }
-  if (seen) state.unseenTimer = 0;
-  else {
-    state.unseenTimer += dt;
-    if (state.unseenTimer >= WANTED.decaySeconds) {
-      state.unseenTimer = 0;
-      state.wantedPoints = Math.max(0, state.wantedPoints - 1);
-      state.wanted = state.wantedPoints;
-      if (state.wanted === 0) state.banner = { text: 'CLEAN', sub: 'You lost them — for now', timer: 2 };
+  cops.forEach((car, idx) => {
+    const side = idx % 2 === 0 ? 1 : -1;
+    const tx = p.x + Math.cos(p.angle + Math.PI / 2) * 26 * side;
+    const ty = p.y + Math.sin(p.angle + Math.PI / 2) * 26 * side;
+    const wantAngle = Math.atan2(ty - car.y, tx - car.x);
+    let diff = wantAngle - car.angle;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    car.angle += Math.max(-2.6 * dt, Math.min(2.6 * dt, diff));
+    const dist = Math.hypot(p.x - car.x, p.y - car.y);
+    car.targetSpeed = car.retire ? CARS.policeTop : Math.min(CARS.policeTop, 18 + dist * 0.12);
+    car.speed += Math.max(-420 * dt, Math.min(420 * dt, car.targetSpeed - car.speed));
+    car.x += Math.cos(car.angle) * car.speed * dt;
+    car.y += Math.sin(car.angle) * car.speed * dt;
+    car.strobe = (state.time * 8 + idx * Math.PI) % (Math.PI * 2) < Math.PI;
+    // A hard ram hurts both cars.
+    if (dist < 34 && !car.ramCool) {
+      car.ramCool = 1.2;
+      if (p.car) {
+        p.car.health -= CARS.ramDamage;
+        state.camera.shake = Math.max(state.camera.shake, 7);
+        if (p.car.health <= 0) {
+          p.car.wrecked = true;
+          p.car.speed = 0;
+          p.car.targetSpeed = 0;
+        }
+      }
     }
+    if (car.ramCool) car.ramCool -= dt;
+  });
+
+  // Air One: up at three stars, hovering with a spotlight.
+  if (want >= WANTED.heliAt) {
+    if (!state.heli) {
+      state.heli = { x: p.x - 90, y: p.y - 60, z: 150, angle: 0, rotor: 0 };
+    }
+    const h = state.heli;
+    h.rotor += dt * 22;
+    const hx = p.x + Math.cos(p.angle + Math.PI) * 80;
+    const hy = p.y + Math.sin(p.angle + Math.PI) * 80;
+    h.x += (hx - h.x) * Math.min(1, dt * 0.9);
+    h.y += (hy - h.y) * Math.min(1, dt * 0.9);
+    h.z += (150 - h.z) * Math.min(1, dt * 1.2);
+    h.angle = Math.atan2(p.y - h.y, p.x - h.x);
+  } else if (state.heli) {
+    state.heli.z += 60 * dt;
+    if (state.heli.z > 320) state.heli = null;
   }
+}
+
+function spawnCop(state, slot) {
+  const p = state.player;
+  const a = state.rng.next() * Math.PI * 2;
+  const d = 260 + state.rng.range(0, 160);
+  const car = {
+    serial: state.carSerial++,
+    kind: 'police',
+    x: p.x + Math.cos(a) * d,
+    y: p.y + Math.sin(a) * d,
+    angle: 0,
+    speed: 0,
+    targetSpeed: CARS.policeTop,
+    health: 100,
+    wrecked: false,
+    color: CARS.policeColor,
+    strobe: false,
+    ramCool: 0,
+    retire: false,
+    slot,
+  };
+  return car;
+}
+
+// The dispatch board: every active unit with a distinct label.
+export function dispatchBoard(state) {
+  const rows = [];
+  const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
+  const p = state.player;
+  cops.forEach((car, i) => {
+    rows.push({
+      label: 'UNIT ' + String(i + 1).padStart(2, '0'),
+      dist: Math.round(Math.hypot(car.x - p.x, car.y - p.y)),
+      status: car.retire ? 'STAND DOWN' : 'PURSUIT',
+    });
+  });
+  if (state.heli) {
+    const d = Math.round(Math.hypot(state.heli.x - p.x, state.heli.y - p.y));
+    rows.splice(1, 0, { label: 'AIR ONE', dist: d, status: 'SPOTLIGHT' });
+  }
+  return rows;
 }

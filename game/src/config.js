@@ -1,64 +1,115 @@
-export const VIEW = { width: 1280, height: 720 };
-export const STEP = 1 / 60;
-export const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-export const SAVE_KEY = 'neon-bay.save.v1';
-export const BEST_KEY = 'neon-bay.best.v1';
+// Neon Bay — tuning constants, palette, missions and shop.
+// One place for every number the game balances on, so a tweak
+// here ripples through the whole city without touching logic.
 
-export const CITY = {
-  width: 3200, height: 2400, pitch: 320, road: 64, block: 256, beachY: 2240,
-  hospital: { x: 2880, y: 2080, name: 'St. Marina Hospital' },
-  precinct: { x: 320, y: 320, name: 'Bayview Precinct' },
-  safehouse: { x: 1600, y: 2080, name: 'Marina Safehouse' },
-  garage: { x: 2560, y: 320, name: 'Rico’s Garage' },
-  hotel: { x: 1600, y: 320, name: 'Hotel Palmera' },
-  bank: { x: 1600, y: 1120, name: 'Bay Trust Bank' },
+export const WORLD = {
+  size: 2400,
+  half: 1200,
+  roadGap: 160,
+  roadWidth: 26,
+  beachY: 2080,
+  beachX0: 480,
+  beachX1: 2100,
+  seaY: 2240,
+  buildingCount: 68,
+  parkCount: 9,
+  palmCount: 64,
+  lampCount: 70,
+  pedCount: 24,
+  trafficCount: 14,
+};
+
+export const PALETTE = {
+  skyTop: 0x2a1245,
+  skyMid: 0x7c2d5e,
+  skyLow: 0xff8c42,
+  fog: 0x4a2358,
+  ground: 0x1d3a24,
+  asphalt: 0x23232b,
+  sand: 0xc2a165,
+  sea: 0x0e4d5c,
+  roofPastel: [0xe2725b, 0xf2a65a, 0x7fb069, 0x6a8caf, 0xd989b5, 0x9b7ede, 0xe8c468],
+  wallWarm: [0xc96f4a, 0xd9a05b, 0x8a9a5b, 0x7d8ca3, 0xb56576, 0x6d6875],
+  neonPink: 0xff2e88,
+  neonCyan: 0x22d3ee,
+  neonAmber: 0xffb703,
 };
 
 export const PLAYER = {
-  radius: 14, walkSpeed: 190, runSpeed: 280, health: 100,
-  punchRange: 34, punchDamage: 25, punchCooldown: 0.35,
-  pistolDamage: 34, pistolCooldown: 0.28, bulletSpeed: 760, bulletRange: 460, startAmmo: 24,
-};
-
-export const CAR = {
-  length: 54, width: 26, accel: 420, brake: 700, reverseAccel: 260,
-  maxSpeed: 520, maxReverse: 160, turnRate: 2.6, handbrakeTurn: 3.6, drag: 0.55,
-  trafficSpeed: 150, policeSpeed: 560, health: 100,
-};
-
-export const AIM = {
-  deadZone: 1.5, hipSens: 0.0026, aimSens: 0.0016, curve: 1.12,
-  assistCone: 0.14, assistRange: 460, assistRate: 0.5,
+  walkSpeed: 170,
+  runSpeed: 260,
+  driveAccel: 620,
+  driveTop: 62,
+  brake: 900,
+  turnRate: 2.4,
+  health: 100,
+  punchReach: 34,
+  punchCool: 0.45,
+  pistolCool: 0.22,
+  bulletSpeed: 900,
+  bulletRange: 420,
+  pistolDamage: 34,
+  startMoney: 60,
+  startAmmo: 24,
 };
 
 export const WANTED = {
-  maxStars: 5, stealCar: 1, hitPedestrian: 1, shoot: 1, killPedestrian: 2,
-  decaySeconds: 9, maxCops: 6, heliStars: 3,
+  max: 5,
+  heliAt: 3,
+  decayPerSec: 0.05,
+  hidePerSec: 0.35,
+  punchHeat: 1,
+  shootHeat: 1,
+  stealHeat: 1,
+  ramHeat: 1,
+};
+
+export const CARS = {
+  playerColor: 0xff7a1a,
+  policeColor: 0x10131a,
+  policeRoof: 0xf4f6f8,
+  civilianColors: [0x2ec4b6, 0xe71d73, 0xffd166, 0x4cc9f0, 0x80b918, 0xef476f, 0x9b5de5],
+  trafficTop: 34,
+  policeTop: 52,
+  ramDamage: 12,
+  wreckAt: 0,
 };
 
 export const MISSIONS = [
-  { id: 'fare', title: 'First Fare', giver: 'Mara Voss', reward: 150, time: 100 },
-  { id: 'hotwheels', title: 'Hot Wheels', giver: 'Rico', reward: 300, time: 120 },
-  { id: 'midnight', title: 'Midnight Run', giver: 'Mara Voss', reward: 250, time: 80 },
-  { id: 'heat', title: 'Lose the Heat', giver: 'Mara Voss', reward: 400, time: 150 },
-  { id: 'score', title: 'The Big Score', giver: 'Mara Voss', reward: 800, time: 240 },
-  { id: 'harbour', title: 'Harbour Lights', giver: 'Mara Voss', reward: 500, time: 150 },
-  { id: 'payback', title: 'Payback', giver: 'Rico', reward: 600, time: 180 },
-  { id: 'crown', title: 'Neon Crown', giver: 'Mara Voss', reward: 1000, time: 300 },
+  { name: 'First Fare', giver: 'Mara Voss', goal: 'Pick up the singer at Hotel Palmera', seconds: 100, pay: 120 },
+  { name: 'Hot Wheels', giver: 'Mara Voss', goal: 'Lift the coupe from Bayview Precinct', seconds: 110, pay: 180 },
+  { name: 'Lose the Heat', giver: 'Mara Voss', goal: 'Make noise at Bay Trust Bank, then vanish', seconds: 150, pay: 220 },
+  { name: 'Silent Partner', giver: 'Rico', goal: 'Deliver the package to the marina stage', seconds: 120, pay: 260 },
+  { name: 'Bay Trust', giver: 'Mara Voss', goal: 'Crack the vault door at Bay Trust Bank', seconds: 160, pay: 320 },
+  { name: 'Harbour Lights', giver: 'Rico', goal: 'Light the harbour beacons before dawn', seconds: 140, pay: 300 },
+  { name: 'Payback', giver: 'Mara Voss', goal: 'Settle the score at Hotel Palmera', seconds: 170, pay: 380 },
+  { name: 'Neon Crown', giver: 'Mara Voss', goal: 'Take the crown run along the beach road', seconds: 180, pay: 500 },
 ];
 
-export const CAM3D = { eyeDrive: 52, eyeFoot: 40, eyeAim: 36, lookDrive: 12, lookFoot: 28, lookAim: 30, heliHeight: 170 };
+export const RANKS = ['UNKNOWN', 'WHEELMAN', 'DRIVER', 'HUSTLER', 'KINGPIN', 'NEON CROWN'];
 
-export const PALETTE = {
-  backdrop: '#0d0f1a', grass: '#2e5d3f', park: '#356b47', sand: '#c2a878', water: '#1d4e6e',
-  asphalt: '#2b2f3a', roadLine: '#d8c25a', sidewalk: '#5d6270', curb: '#7a7f8c',
-  building: ['#e8a87c', '#d97b6c', '#7fb3d5', '#f2d492', '#9b7fb3', '#6b8e7a', '#e07a5f', '#81b29a'],
-  roof: ['#8a5a44', '#6e4a5a', '#4a6a8a', '#8a7a4a', '#5a4a7a', '#4a6a5a'],
-  pastel: ['#f7a8b8', '#a8e6cf', '#ffd3b6', '#a8d8ea', '#f9e79f'],
-  neonPink: '#ff2e88', neonCyan: '#22d3ee', neonYellow: '#ffd23f',
-  player: '#22d3ee', playerPants: '#1e2a3a', police: '#e8ecf2', policeDark: '#1a2a4a',
-  traffic: ['#c0392b', '#2e86c1', '#f1c40f', '#7d3c98', '#16a085', '#e67e22', '#95a5a6', '#34495e'],
-  ped: ['#f39c12', '#8e44ad', '#2ecc71', '#e74c3c', '#3498db', '#f1c40f', '#1abc9c', '#d35400'],
-  text: '#f4f6fa', muted: '#aab2c5', money: '#7ee787', danger: '#ff5a5a',
-  panel: 'rgba(13, 16, 28, 0.88)', panelEdge: '#22d3ee',
+export const SHOP_ITEMS = [
+  { key: '1', label: 'Ammo +24', detail: 'Pistol rounds', price: 50 },
+  { key: '2', label: 'Medkit', detail: 'Restore health', price: 60 },
+  { key: '3', label: 'Repair', detail: 'Fix your car', price: 80 },
+  { key: '4', label: 'Clean record', detail: 'Lose one star', price: 200 },
+];
+
+export const SHOP_POS = { x: 420, y: 1560, radius: 150 };
+
+export const KEYS = {
+  forward: ['KeyW', 'ArrowUp'],
+  back: ['KeyS', 'ArrowDown'],
+  left: ['KeyA', 'ArrowLeft'],
+  right: ['KeyD', 'ArrowRight'],
+  brake: ['ShiftLeft', 'ShiftRight'],
+  enter: ['KeyE'],
+  shoulder: ['KeyQ'],
+  pause: ['KeyP'],
+  buy1: ['Digit1'],
+  buy2: ['Digit2'],
+  buy3: ['Digit3'],
+  buy4: ['Digit4'],
 };
+
+export const SHOT_NAMES = ['start', 'play', 'chase', 'end'];

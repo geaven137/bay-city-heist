@@ -1,182 +1,251 @@
-import { CITY, PALETTE, PLAYER } from './config.js';
+// Neon Bay — the city of St. Marina.
+// generateCity is pure math: it lays out blocks, buildings,
+// palms, lamps and parks from a seed, so the city is identical
+// every run of that seed. buildCityMeshes turns that data into
+// Three.js objects, and only runs in the browser.
 
-export const roadCentresX = [];
-export const roadCentresY = [];
-for (let x = CITY.pitch / 2; x < CITY.width; x += CITY.pitch) roadCentresX.push(x);
-for (let y = CITY.pitch / 2; y < CITY.height; y += CITY.pitch) roadCentresY.push(y);
+import { WORLD, PALETTE } from './config.js';
 
-export function nearestCentre(list, value) {
-  let best = list[0], bd = Math.abs(value - best);
-  for (const c of list) {
-    const d = Math.abs(value - c);
-    if (d < bd) { bd = d; best = c; }
-  }
-  return best;
-}
-
-export function isOnRoad(x, y) {
-  return Math.abs(x - nearestCentre(roadCentresX, x)) <= CITY.road / 2
-    || Math.abs(y - nearestCentre(roadCentresY, y)) <= CITY.road / 2;
-}
-
-export function isOnBeach(x, y) { return y >= CITY.beachY; }
-
-export function atIntersection(x, y, radius = 46) {
-  return Math.abs(x - nearestCentre(roadCentresX, x)) <= radius
-    && Math.abs(y - nearestCentre(roadCentresY, y)) <= radius;
-}
-
-export function nearestIntersection(x, y) {
-  return { x: nearestCentre(roadCentresX, x), y: nearestCentre(roadCentresY, y) };
-}
-
-export function laneOffset(axis, dir) {
-  if (axis === 'x') return dir > 0 ? 16 : -16;
-  return dir > 0 ? -16 : 16;
-}
-
-export function randomRoadPoint(random, x, y, minDist, maxDist) {
-  for (let i = 0; i < 24; i += 1) {
-    const vertical = random() < 0.5;
-    const cx = roadCentresX[Math.floor(random() * roadCentresX.length)];
-    const cy = roadCentresY[Math.floor(random() * roadCentresY.length)];
-    const px = vertical ? cx : random() * CITY.width;
-    const py = vertical ? random() * CITY.height : cy;
-    const d = Math.hypot(px - x, py - y);
-    if (d >= minDist && d <= maxDist) return { x: px, y: py };
-  }
-  return { x: nearestCentre(roadCentresX, x), y: nearestCentre(roadCentresY, y) };
-}
-
-export function randomSidewalkPoint(random, x, y, radius = 500) {
-  const cx = nearestCentre(roadCentresX, x + (random() - 0.5) * radius * 2);
-  const cy = nearestCentre(roadCentresY, y + (random() - 0.5) * radius * 2);
-  if (random() < 0.5) return { x: cx + CITY.road / 2 + 12, y: Math.max(40, Math.min(CITY.height - 40, y + (random() - 0.5) * radius)) };
-  return { x: Math.max(40, Math.min(CITY.width - 40, x + (random() - 0.5) * radius)), y: cy + CITY.road / 2 + 12 };
-}
-
-function buildingAt(city, x, y) {
-  for (const b of city.buildings) {
-    if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
-  }
-  return null;
-}
-
-export function resolveBuildingCollision(city, x, y, radius) {
-  let px = x, py = y;
-  for (const b of city.buildings) {
-    const nx = Math.max(b.x, Math.min(px, b.x + b.w));
-    const ny = Math.max(b.y, Math.min(py, b.y + b.h));
-    const dx = px - nx, dy = py - ny, d2 = dx * dx + dy * dy;
-    if (d2 >= radius * radius) continue;
-    if (d2 === 0) { py = b.y - radius; continue; }
-    const d = Math.sqrt(d2);
-    px = nx + (dx / d) * radius;
-    py = ny + (dy / d) * radius;
-  }
-  return { x: px, y: py };
-}
-
-export function hitsBuilding(city, x, y, radius) {
-  return buildingAt(city, x, y) !== null
-    || buildingAt(city, x - radius, y) !== null || buildingAt(city, x + radius, y) !== null
-    || buildingAt(city, x, y - radius) !== null || buildingAt(city, x, y + radius) !== null;
-}
-
-function makeBuilding(random, bx, by, bw, bh, name) {
-  const beachfront = by + bh >= CITY.beachY - 320;
-  const color = PALETTE.building[Math.floor(random() * PALETTE.building.length)];
-  const roof = beachfront
-    ? PALETTE.pastel[Math.floor(random() * PALETTE.pastel.length)]
-    : PALETTE.roof[Math.floor(random() * PALETTE.roof.length)];
-  const hash = (bx * 31 + by * 17) % 100;
-  return {
-    x: bx + 14, y: by + 14, w: bw - 28, h: bh - 28,
-    height: 22 + random() * 68, color, roof, name: name || null,
-    neon: random() < 0.35, beachfront,
-    facade: hash % 4, lit: 0.35 + (hash % 5) * 0.1,
-  };
-}
-
-export function createCity(random) {
-  const buildings = [], parks = [];
-  const named = [
-    { key: 'hospital', w: 200, h: 140 }, { key: 'precinct', w: 180, h: 120 },
-    { key: 'safehouse', w: 150, h: 110 }, { key: 'garage', w: 190, h: 120 },
-    { key: 'hotel', w: 170, h: 130 }, { key: 'bank', w: 180, h: 120 },
-  ];
-  for (let j = 0; j < roadCentresY.length - 1; j += 1) {
-    for (let i = 0; i < roadCentresX.length - 1; i += 1) {
-      const bx = roadCentresX[i] + CITY.road / 2;
-      const by = roadCentresY[j] + CITY.road / 2;
-      const bw = CITY.block, bh = CITY.block;
-      if (by + bh >= CITY.beachY) continue;
-      const roll = random();
-      if (roll < 0.14) {
-        const trees = [];
-        for (let t = 0; t < 7; t += 1) {
-          trees.push({ x: bx + 24 + random() * (bw - 48), y: by + 24 + random() * (bh - 48), r: 12 + random() * 10 });
-        }
-        parks.push({ x: bx, y: by, w: bw, h: bh, trees });
-        continue;
-      }
-      const spot = named.find((n) => {
-        const c = CITY[n.key];
-        return Math.abs(c.x - (bx + bw / 2)) < bw / 2 && Math.abs(c.y - (by + bh / 2)) < bh / 2;
-      });
-      if (spot) {
-        const c = CITY[spot.key];
-        const b = makeBuilding(random, bx, by, bw, bh, c.name);
-        b.w = spot.w; b.h = spot.h;
-        b.x = c.x - spot.w / 2; b.y = c.y - spot.h / 2;
-        b.height = 46 + random() * 30;
-        buildings.push(b);
-        continue;
-      }
-      if (roll < 0.55) buildings.push(makeBuilding(random, bx, by, bw, bh, null));
-      else {
-        buildings.push(makeBuilding(random, bx, by, bw / 2 - 4, bh, null));
-        buildings.push(makeBuilding(random, bx + bw / 2 + 4, by, bw / 2 - 4, bh, null));
-      }
+export function generateCity(rng) {
+  const gap = WORLD.roadGap;
+  const half = WORLD.half;
+  const blocks = [];
+  for (let gx = -7; gx <= 7; gx++) {
+    for (let gy = -7; gy <= 7; gy++) {
+      const cx = gx * gap + gap / 2;
+      const cy = gy * gap + gap / 2;
+      if (cy > 1760) continue;
+      if (Math.abs(cx - 1500) < 280 && cy > 1680 && cy < 2080) continue;
+      blocks.push({ x: cx, y: cy });
     }
+  }
+  const shuffled = rng.shuffle(blocks);
+  const buildings = [];
+  for (const b of shuffled) {
+    if (buildings.length >= WORLD.buildingCount) break;
+    if (rng.chance(0.28)) continue;
+    buildings.push({
+      x: b.x + rng.range(-12, 12),
+      y: b.y + rng.range(-12, 12),
+      w: rng.range(46, 92),
+      d: rng.range(46, 92),
+      h: rng.range(34, 150),
+      roof: rng.pick(PALETTE.roofPastel),
+      wall: rng.pick(PALETTE.wallWarm),
+    });
+  }
+  const parks = [];
+  for (let i = 0; i < WORLD.parkCount; i++) {
+    parks.push({
+      x: rng.range(-half + 160, half - 160),
+      y: rng.range(-half + 160, 1700),
+      r: rng.range(70, 130),
+    });
   }
   const palms = [];
-  for (let i = 0; i < 18; i += 1) {
-    const h1 = ((i * 2654435761) % 1000) / 1000;
-    const h2 = ((i * 40503) % 1000) / 1000;
-    palms.push({ x: 120 + i * 170 + h1 * 60, y: CITY.beachY - 30 - h2 * 22, lean: h1 * Math.PI });
-  }
-  const hotel = buildings.find((b) => b.name === 'Hotel Palmera');
-  if (hotel) { hotel.sign = 'HOTEL'; hotel.neon = true; }
-  const downtown = buildings.filter((b) => !b.sign && b.neon && b.x > 900 && b.x < 2300 && b.y > 700 && b.y < 1700);
-  if (downtown[0]) downtown[0].sign = 'BAR';
-  if (downtown[1]) downtown[1].sign = 'TACOS';
-  if (downtown[2]) downtown[2].sign = 'CAFE';
-  if (downtown[3]) downtown[3].sign = 'PIZZA';
-  const lamps = [];
-  for (const cx of roadCentresX) {
-    for (const cy of roadCentresY) {
-      const h = ((cx * 13 + cy * 7) % 12) - 6;
-      lamps.push({ x: cx + 38, y: cy + 38 + h });
+  for (let i = 0; i < WORLD.palmCount; i++) {
+    if (rng.chance(0.45)) {
+      palms.push({ x: rng.range(520, 2050), y: rng.range(1980, 2160), s: rng.range(0.8, 1.3) });
+    } else {
+      const park = parks[i % parks.length];
+      const a = rng.next() * Math.PI * 2;
+      palms.push({ x: park.x + Math.cos(a) * park.r * 0.7, y: park.y + Math.sin(a) * park.r * 0.7, s: rng.range(0.8, 1.2) });
     }
   }
-  return { buildings, parks, palms, lamps, width: CITY.width, height: CITY.height };
+  const lamps = [];
+  for (let k = -7; k <= 7; k++) {
+    for (let t = -1100; t <= 1100; t += 220) {
+      if (lamps.length >= WORLD.lampCount) break;
+      if (rng.chance(0.5)) lamps.push({ x: k * gap + 18, y: t });
+      if (lamps.length >= WORLD.lampCount) break;
+      if (rng.chance(0.5)) lamps.push({ x: t, y: k * gap - 18 });
+    }
+    if (lamps.length >= WORLD.lampCount) break;
+  }
+  return {
+    buildings,
+    palms,
+    lamps,
+    parks,
+    airstrip: { x: 1500, y: 1890, len: 520, wid: 46, angle: 0 },
+    gap,
+    half,
+  };
 }
 
-export function createState(city, random) {
-  return {
-    city, time: 0, money: 60, health: PLAYER.health, ammo: PLAYER.startAmmo,
-    wanted: 0, wantedPoints: 0, unseenTimer: 0,
-    player: {
-      x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2,
-      onFoot: true, car: null, punchTimer: 0, shootTimer: 0,
-      hurtTimer: 0, regenTimer: 0, moving: false, running: false,
-    },
-    cars: [], peds: [], bullets: [], particles: [],
-    mission: null, missionsDone: 0, storyDone: false,
-    camera: { x: CITY.safehouse.x, y: CITY.safehouse.y + 120, angle: -Math.PI / 2, fov: 1.15, shoulder: 0, shake: 0 },
-    wasted: false, busted: false, endTimer: 0,
-    stats: { carsStolen: 0, missionsDone: 0, shotsFired: 0, pedsDown: 0 },
-    banner: null, flash: 0, sideJob: null,
-  };
+// True when (x, y) sits on a road centreline (within half width).
+export function onRoad(x, y) {
+  const gap = WORLD.roadGap;
+  const w = WORLD.roadWidth / 2 + 6;
+  const fx = Math.abs(((x % gap) + gap) % gap - gap / 2);
+  const fy = Math.abs(((y % gap) + gap) % gap - gap / 2);
+  const nearX = Math.min(fx, gap - fx) < w;
+  const nearY = Math.min(fy, gap - fy) < w;
+  return nearX || nearY;
+}
+
+// Distance from (x, y) to the beach road centreline.
+export function beachGap(x, y) {
+  return Math.abs(y - WORLD.beachY);
+}
+
+export function buildCityMeshes(scene, city) {
+  const T = globalThis.THREE;
+  const ground = new T.Mesh(
+    new T.PlaneGeometry(WORLD.size * 1.6, WORLD.size * 1.6),
+    new T.MeshStandardMaterial({ color: PALETTE.ground, roughness: 1 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(0, 0, -0.5);
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  const sea = new T.Mesh(
+    new T.PlaneGeometry(2600, 420),
+    new T.MeshStandardMaterial({ color: PALETTE.sea, roughness: 0.25, metalness: 0.35 })
+  );
+  sea.rotation.x = -Math.PI / 2;
+  sea.position.set(900, WORLD.seaY + 120, 0.5);
+  sea.receiveShadow = true;
+  scene.add(sea);
+
+  const sand = new T.Mesh(
+    new T.PlaneGeometry(2400, 130),
+    new T.MeshStandardMaterial({ color: PALETTE.sand, roughness: 1 })
+  );
+  sand.rotation.x = -Math.PI / 2;
+  sand.position.set(900, 2180, 0.2);
+  sand.receiveShadow = true;
+  scene.add(sand);
+
+  // Asphalt strips for the grid roads.
+  const roadMat = new T.MeshStandardMaterial({ color: PALETTE.asphalt, roughness: 0.95 });
+  for (let k = -7; k <= 7; k++) {
+    const c = k * WORLD.roadGap;
+    const v = new T.Mesh(new T.PlaneGeometry(WORLD.roadWidth, WORLD.size), roadMat);
+    v.rotation.x = -Math.PI / 2;
+    v.position.set(c, 0, 0.05);
+    v.receiveShadow = true;
+    scene.add(v);
+    const h = new T.Mesh(new T.PlaneGeometry(WORLD.size, WORLD.roadWidth), roadMat);
+    h.rotation.x = -Math.PI / 2;
+    h.position.set(0, c, 0.05);
+    h.receiveShadow = true;
+    scene.add(h);
+  }
+  const beach = new T.Mesh(new T.PlaneGeometry(1800, WORLD.roadWidth + 6), roadMat);
+  beach.rotation.x = -Math.PI / 2;
+  beach.position.set(1250, WORLD.beachY, 0.05);
+  beach.receiveShadow = true;
+  scene.add(beach);
+
+  // Buildings as one instanced mesh, coloured per instance.
+  const boxGeo = new T.BoxGeometry(1, 1, 1);
+  const boxMat = new T.MeshStandardMaterial({ roughness: 0.85, metalness: 0.05 });
+  const inst = new T.InstancedMesh(boxGeo, boxMat, city.buildings.length);
+  const m4 = new T.Matrix4();
+  const q = new T.Quaternion();
+  const sc = new T.Vector3();
+  const pos = new T.Vector3();
+  const col = new T.Color();
+  city.buildings.forEach((b, i) => {
+    pos.set(b.x, b.y, b.h / 2);
+    sc.set(b.w, b.d, b.h);
+    m4.compose(pos, q, sc);
+    inst.setMatrixAt(i, m4);
+    col.setHex(b.wall);
+    inst.setColorAt(i, col);
+  });
+  inst.castShadow = true;
+  inst.receiveShadow = true;
+  scene.add(inst);
+  // Pastel roof caps, also instanced.
+  const roofGeo = new T.BoxGeometry(1, 1, 1);
+  const roofMat = new T.MeshStandardMaterial({ roughness: 0.7, metalness: 0.1 });
+  const roofs = new T.InstancedMesh(roofGeo, roofMat, city.buildings.length);
+  city.buildings.forEach((b, i) => {
+    pos.set(b.x, b.y, b.h + 2);
+    sc.set(b.w + 4, b.d + 4, 4);
+    m4.compose(pos, q, sc);
+    roofs.setMatrixAt(i, m4);
+    col.setHex(b.roof);
+    roofs.setColorAt(i, col);
+  });
+  roofs.castShadow = true;
+  scene.add(roofs);
+
+  // Palms: instanced trunks and canopies.
+  const trunkGeo = new T.CylinderGeometry(0.35, 0.55, 14, 7);
+  const trunkMat = new T.MeshStandardMaterial({ color: 0x7a5230, roughness: 1 });
+  const trunks = new T.InstancedMesh(trunkGeo, trunkMat, city.palms.length);
+  const canopyGeo = new T.ConeGeometry(5.4, 7, 6);
+  const canopyMat = new T.MeshStandardMaterial({ color: 0x2f9e44, roughness: 0.9 });
+  const canopies = new T.InstancedMesh(canopyGeo, canopyMat, city.palms.length);
+  city.palms.forEach((p, i) => {
+    pos.set(p.x, p.y, 7 * p.s);
+    sc.set(p.s, p.s, p.s);
+    m4.compose(pos, q, sc);
+    trunks.setMatrixAt(i, m4);
+    pos.set(p.x, p.y, (14 + 3) * p.s);
+    m4.compose(pos, q, sc);
+    canopies.setMatrixAt(i, m4);
+  });
+  trunks.castShadow = true;
+  canopies.castShadow = true;
+  scene.add(trunks);
+  scene.add(canopies);
+
+  // Lamp posts, instanced.
+  const postGeo = new T.CylinderGeometry(0.22, 0.3, 11, 6);
+  const postMat = new T.MeshStandardMaterial({ color: 0x2b2f36, roughness: 0.6, metalness: 0.5 });
+  const posts = new T.InstancedMesh(postGeo, postMat, city.lamps.length);
+  const bulbGeo = new T.SphereGeometry(0.85, 8, 6);
+  const bulbMat = new T.MeshStandardMaterial({ color: 0xfff6c9, emissive: 0xffe9a8, emissiveIntensity: 1.6 });
+  const bulbs = new T.InstancedMesh(bulbGeo, bulbMat, city.lamps.length);
+  city.lamps.forEach((l, i) => {
+    pos.set(l.x, l.y, 5.5);
+    sc.set(1, 1, 1);
+    m4.compose(pos, q, sc);
+    posts.setMatrixAt(i, m4);
+    pos.set(l.x, l.y, 11.2);
+    m4.compose(pos, q, sc);
+    bulbs.setMatrixAt(i, m4);
+  });
+  scene.add(posts);
+  scene.add(bulbs);
+
+  // Parks as flat green discs.
+  const parkMat = new T.MeshStandardMaterial({ color: 0x2b6b34, roughness: 1 });
+  for (const pk of city.parks) {
+    const disc = new T.Mesh(new T.CircleGeometry(pk.r, 20), parkMat);
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.set(pk.x, pk.y, 0.15);
+    disc.receiveShadow = true;
+    scene.add(disc);
+  }
+
+  // Airstrip: runway + windsock pole.
+  const strip = city.airstrip;
+  const runway = new T.Mesh(
+    new T.PlaneGeometry(strip.len, strip.wid),
+    new T.MeshStandardMaterial({ color: 0x2e3138, roughness: 0.95 })
+  );
+  runway.rotation.x = -Math.PI / 2;
+  runway.position.set(strip.x, strip.y, 0.1);
+  runway.receiveShadow = true;
+  scene.add(runway);
+  const sockPole = new T.Mesh(
+    new T.CylinderGeometry(0.25, 0.3, 16, 6),
+    new T.MeshStandardMaterial({ color: 0xd7dde3, roughness: 0.5, metalness: 0.6 })
+  );
+  sockPole.position.set(strip.x + strip.len / 2 + 30, strip.y + 30, 8);
+  sockPole.castShadow = true;
+  scene.add(sockPole);
+  const sock = new T.Mesh(
+    new T.ConeGeometry(1.6, 6, 8),
+    new T.MeshStandardMaterial({ color: 0xff6b35, roughness: 0.8 })
+  );
+  sock.rotation.z = -Math.PI / 2;
+  sock.position.set(strip.x + strip.len / 2 + 33, strip.y + 30, 15);
+  scene.add(sock);
 }

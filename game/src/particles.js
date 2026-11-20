@@ -1,38 +1,49 @@
-const MAX = 400;
+// Neon Bay — sparks, smoke and debris.
+// Pure data: each particle is a point with velocity and a life.
+// The renderer draws them; the logic here only moves and ages them.
 
-export function spawnParticles(state, x, y, count, color, speed) {
-  for (let i = 0; i < count; i += 1) {
-    if (state.particles.length > MAX) return;
-    const a = Math.random() * Math.PI * 2;
-    const v = speed * (0.3 + Math.random() * 0.7);
-    state.particles.push({
-      x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
-      z: 4 + Math.random() * 10, vz: 30 + Math.random() * 90,
-      life: 0.4 + Math.random() * 0.5, maxLife: 0.9, size: 2 + Math.random() * 4, color, gravity: 0,
+export function burst(state, x, y, z, count, color, speed) {
+  const list = state.particles;
+  for (let i = 0; i < count; i++) {
+    const a = state.rng.next() * Math.PI * 2;
+    const up = state.rng.range(0.3, 1);
+    const v = speed * state.rng.range(0.4, 1);
+    list.push({
+      x, y, z,
+      vx: Math.cos(a) * v,
+      vy: Math.sin(a) * v,
+      vz: up * v * 0.7,
+      life: state.rng.range(0.35, 0.8),
+      max: 0.8,
+      color,
+      size: state.rng.range(2, 5),
     });
   }
+  if (list.length > 420) list.splice(0, list.length - 420);
 }
 
-export function spawnExhaust(state, x, y, angle) {
-  if (state.particles.length > MAX) return;
-  state.particles.push({
-    x, y, vx: Math.cos(angle) * 30 + (Math.random() - 0.5) * 20,
-    vy: Math.sin(angle) * 30 + (Math.random() - 0.5) * 20,
-    z: 6, vz: 10, life: 0.5, maxLife: 0.5, size: 5, color: '#5a5f6a', gravity: 0,
-  });
-}
-
-export function updateParticles(state, dt) {
-  for (const p of state.particles) {
+export function stepParticles(state, dt) {
+  const list = state.particles;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const p = list[i];
     p.life -= dt;
-    p.x += p.vx * dt; p.y += p.vy * dt;
-    p.vx *= 1 - 2 * dt; p.vy *= 1 - 2 * dt;
-    p.vz -= 60 * dt; p.z += p.vz * dt;
-    if (p.z < 0) { p.z = 0; p.vz = 0; }
+    if (p.life <= 0) {
+      list.splice(i, 1);
+      continue;
+    }
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.z += p.vz * dt;
+    p.vz -= 260 * dt;
+    if (p.z < 0) {
+      p.z = 0;
+      p.vz = 0;
+    }
+    p.vx *= 1 - 1.6 * dt;
+    p.vy *= 1 - 1.6 * dt;
   }
-  state.particles = state.particles.filter((p) => p.life > 0);
 }
 
-export function updateShake(state, dt) {
-  state.camera.shake = Math.max(0, state.camera.shake - dt * 26);
+export function clearParticles(state) {
+  state.particles.length = 0;
 }

@@ -1,91 +1,91 @@
-import { PALETTE } from './config.js';
-import { HL } from './patchkit.js';
-import { atIntersection, nearestIntersection, randomSidewalkPoint, resolveBuildingCollision } from './world.js';
+// Neon Bay — the people on the sidewalks.
+// Pedestrians stroll, panic and scatter when trouble starts,
+// and go down when hit. They are also witnesses: a crime only
+// raises the wanted level when a pedestrian or a cop sees it.
 
-export function makePed(random, x, y, hot) {
-  const roll = random();
-  const kind = hot
-    ? (roll < 0.22 ? 'police' : roll < 0.26 ? 'fire' : 'civilian')
-    : (roll < 0.08 ? 'police' : roll < 0.12 ? 'fire' : 'civilian');
-  return {
-    x, y, angle: random() * Math.PI * 2, speed: 40 + random() * 40,
-    color: PALETTE.ped[Math.floor(random() * PALETTE.ped.length)],
-    kind, mode: 'walk',
-    fleeX: 0, fleeY: 0, timer: 1 + random() * 3, down: false, downTimer: 0,
-    axis: random() < 0.5 ? 'x' : 'y', dir: random() < 0.5 ? 1 : -1,
-  };
+import { WORLD } from './config.js';
+import { burst } from './particles.js';
+
+const SKIN = [0xc98d64, 0x8a5a3b, 0xe8b98a, 0x6b4423, 0xd9a066];
+const SHIRT = [0xef476f, 0x118ab2, 0xffd166, 0x06d6a0, 0x9b5de5, 0xf15bb5, 0xef8354];
+
+export function spawnCrowd(state) {
+  const rng = state.rng;
+  state.peds.length = 0;
+  for (let i = 0; i < WORLD.pedCount; i++) {
+    const onBeach = rng.chance(0.3);
+    const x = onBeach ? rng.range(520, 2000) : rng.range(-WORLD.half + 80, WORLD.half - 80);
+    const y = onBeach ? rng.range(2010, 2160) : rng.range(-WORLD.half + 80, WORLD.half - 80);
+    state.peds.push({
+      x, y,
+      angle: rng.next() * Math.PI * 2,
+      speed: rng.range(28, 62),
+      down: false,
+      downTimer: 0,
+      panic: 0,
+      skin: SKIN[rng.whole(0, SKIN.length - 1)],
+      shirt: SHIRT[rng.whole(0, SHIRT.length - 1)],
+      stride: rng.range(0, Math.PI * 2),
+    });
+  }
 }
 
-export function spawnPedestrian(state, random, x, y) {
-  const p = randomSidewalkPoint(random, x, y);
-  const ped = makePed(random, p.x, p.y, state.wanted > 0);
-  state.peds.push(ped);
-  return ped;
+export function stepCrowd(state, dt) {
+  const half = WORLD.half - 60;
+  for (const ped of state.peds) {
+    if (ped.down) {
+      ped.downTimer -= dt;
+      if (ped.downTimer <= 0) {
+        ped.down = false;
+        ped.panic = 0.6;
+      }
+      continue;
+    }
+    ped.stride += dt * 7;
+    const boost = ped.panic > 0 ? 2.1 : 1;
+    ped.x += Math.cos(ped.angle) * ped.speed * boost * dt;
+    ped.y += Math.sin(ped.angle) * ped.speed * boost * dt;
+    if (ped.panic > 0) ped.panic -= dt * 0.5;
+    if (ped.x < -half || ped.x > half || ped.y < -half || ped.y > half) {
+      ped.angle += Math.PI * (0.6 + state.rng.next() * 0.8);
+      ped.x = Math.max(-half, Math.min(half, ped.x));
+      ped.y = Math.max(-half, Math.min(half, ped.y));
+    }
+    if (state.rng.chance(dt * 0.25)) {
+      ped.angle += state.rng.range(-0.9, 0.9);
+    }
+  }
 }
 
-export function scarePedestrians(state, x, y, radius = 260) {
+export function dropPedestrian(state, ped, onCrime) {
+  if (ped.down) return;
+  ped.down = true;
+  ped.downTimer = 2.4;
+  ped.panic = 1;
+  burst(state, ped.x, ped.y, 26, 10, '#ffd23f', 150);
+  if (onCrime) onCrime(1, ped.x, ped.y);
+  state.stats.pedsDown += 1;
+}
+
+export function scatterCrowd(state, x, y, radius) {
   for (const ped of state.peds) {
     if (ped.down) continue;
-    if (Math.hypot(ped.x - x, ped.y - y) < radius) {
-      ped.mode = 'flee';
-      ped.fleeX = x;
-      ped.fleeY = y;
-      ped.timer = 2.5;
+    const d = Math.hypot(ped.x - x, ped.y - y);
+    if (d < radius) {
+      ped.angle = Math.atan2(ped.y - y, ped.x - x) + state.rng.range(-0.4, 0.4);
+      ped.panic = 1;
     }
   }
 }
 
-export function updatePedestrian(state, ped, dt, random) {
-  if (ped.down) {
-    ped.downTimer -= dt;
-    if (ped.downTimer <= 0) {
-      ped.down = false;
-      ped.mode = 'flee';
-      ped.timer = 2;
-      ped.fleeX = state.player.x;
-      ped.fleeY = state.player.y;
-    }
-    return;
+// Is anyone close enough to witness a crime at (x, y)?
+export function witnessedBy(state, x, y) {
+  for (const ped of state.peds) {
+    if (ped.down) continue;
+    if (Math.hypot(ped.x - x, ped.y - y) < 260) return true;
   }
-  if (ped.mode === 'flee') {
-    ped.timer -= dt;
-    const away = Math.atan2(ped.y - ped.fleeY, ped.x - ped.fleeX);
-    ped.angle = away;
-    ped.x += Math.cos(away) * 240 * dt;
-    ped.y += Math.sin(away) * 240 * dt;
-    if (ped.timer <= 0) ped.mode = 'walk';
-  } else {
-    ped.timer -= dt;
-    ped.x += Math.cos(ped.angle) * ped.speed * dt;
-    ped.y += Math.sin(ped.angle) * ped.speed * dt;
-    if (ped.timer <= 0 || atIntersection(ped.x, ped.y, 30)) {
-      ped.timer = 2 + random() * 4;
-      const node = nearestIntersection(ped.x, ped.y);
-      ped.angle += [0, Math.PI / 2, -Math.PI / 2, Math.PI][Math.floor(random() * 4)];
-      ped.x = node.x + (random() - 0.5) * 20;
-      ped.y = node.y + (random() - 0.5) * 20;
-    }
+  for (const car of state.cars) {
+    if (car.kind === 'police' && Math.hypot(car.x - x, car.y - y) < 420) return true;
   }
-  const fixed = resolveBuildingCollision(state.city, ped.x, ped.y, 12);
-  ped.x = fixed.x;
-  ped.y = fixed.y;
-  ped.x = Math.max(16, Math.min(state.city.width - 16, ped.x));
-  ped.y = Math.max(16, Math.min(state.city.height - 16, ped.y));
-}
-
-export function maintainPedestrians(state, random, target = 22) {
-  const p = state.player;
-  state.peds = state.peds.filter((ped) => Math.hypot(ped.x - p.x, ped.y - p.y) < 1200);
-  for (let i = state.peds.length; i < target; i += 1) spawnPedestrian(state, random, p.x, p.y);
-}
-
-export function knockDownPed(state, ped, addWanted) {
-  if (ped.down) return false;
-  ped.down = true;
-  ped.downTimer = 6;
-  ped.mode = 'down';
-  state.stats.pedsDown += 1;
-  HL.Profile.record('takedown');
-  addWanted(1, ped.x, ped.y);
-  return true;
+  return false;
 }
