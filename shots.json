@@ -1,1 +1,1 @@
-[{"name":"1-start.jpg","query":"?shot=start&seed=1"},{"name":"2-play.jpg","query":"?shot=play&seed=1"},{"name":"3-chase.jpg","query":"?shot=chase&seed=1"},{"name":"4-end.jpg","query":"?shot=end&seed=1"}]
+{"shots":[{"label":"Title screen","name":"start","url":"game/?shot=start&seed=1"},{"label":"Driving the beach road","name":"play","url":"game/?shot=play&seed=1"},{"label":"Police chase with Air One","name":"chase","url":"game/?shot=chase&seed=1"},{"label":"BUSTED end screen","name":"end","url":"game/?shot=end&seed=1"}]}

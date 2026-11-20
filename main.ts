@@ -1,45 +1,73 @@
-// NEON BAY — entry program (Node 22, standard library only). The game is
-// this directory's game/ folder: plain static files a desktop browser loads
-// offline (game/index.html and its ES modules, no network request —
-// Three.js is vendored as one file in game/vendor/ and the program hands
-// it in). It copies game/ and screenshots/ from beside this file to
-// /output and writes /output/dossier.json, the summary the judge reads,
-// with the vendored make.fun library. The game itself is NEON BAY, an
-// original open-world crime game: a grid city to explore on foot and by
-// car, traffic and pedestrians, cars to steal (including fire trucks,
-// ambulances and motorcycles from the Palmera fleet), planes on flyovers
-// above a beach airstrip, a wanted level with police who chase and a
-// helicopter above three stars, eight story missions, a shop at Rico's
-// Garage, combat, a dense HUD with a minimap and a police dispatch list,
-// start/pause/game-over screens and a localStorage save — all in real 3D
-// (Three.js, low-poly, golden hour) with synthesized WebAudio sound. Put
-// your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name
-// is the cover) and run it.
-//
-// Serve it locally with `node serve.ts`, then open http://localhost:8080.
-// Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:
-//   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
+// Neon Bay — entrypoint.
+// Copies game/ and screenshots/ into the output directory and
+// writes dossier.json there with the kit's buildDossier. Runs
+// on Node 22 with the standard library only; no network, no
+// install step. The output directory comes from the
+// MAKEFUN_OUTPUT_DIR environment variable, else /output.
 
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-game.ts';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-const here = fileURLToPath(new URL('.', import.meta.url));
-const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
+const TEXT_CAP = 163840;
 
-mkdirSync(out, { recursive: true });
-cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
-mkdirSync(join(out, 'screenshots'), { recursive: true });
-if (existsSync(join(here, 'screenshots'))) cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
+function copyTree(fromDir, toDir) {
+  fs.mkdirSync(toDir, { recursive: true });
+  for (const entry of fs.readdirSync(fromDir, { withFileTypes: true })) {
+    const src = path.join(fromDir, entry.name);
+    const dst = path.join(toDir, entry.name);
+    if (entry.isDirectory()) {
+      copyTree(src, dst);
+    } else if (entry.isFile()) {
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
+      fs.copyFileSync(src, dst);
+    }
+  }
+}
 
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+function countTree(dir) {
+  let files = 0;
+  let bytes = 0;
+  const walk = (d) => {
+    for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.isFile()) {
+        files += 1;
+        bytes += fs.statSync(p).size;
+      }
+    }
+  };
+  walk(dir);
+  return { files, bytes };
+}
+
+async function main() {
+  const repoRoot = process.cwd();
+  const outDir = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+  fs.mkdirSync(outDir, { recursive: true });
+
+  const gameSrc = path.join(repoRoot, 'game');
+  const shotsSrc = path.join(repoRoot, 'screenshots');
+  const gameDst = path.join(outDir, 'game');
+  const shotsDst = path.join(outDir, 'screenshots');
+  copyTree(gameSrc, gameDst);
+  if (fs.existsSync(shotsSrc)) copyTree(shotsSrc, shotsDst);
+
+  const dossier = await buildDossier(repoRoot, { text_max_bytes: TEXT_CAP });
+  const dossierPath = path.join(outDir, 'dossier.json');
+  fs.writeFileSync(dossierPath, dossier);
+
+  const gameStats = countTree(gameDst);
+  const shotStats = fs.existsSync(shotsDst) ? countTree(shotsDst) : { files: 0, bytes: 0 };
+  const dossierBytes = fs.statSync(dossierPath).size;
+  console.log('NEON BAY packaged:');
+  console.log('  game: ' + gameStats.files + ' files, ' + gameStats.bytes + ' bytes');
+  console.log('  screenshots: ' + shotStats.files + ' files, ' + shotStats.bytes + ' bytes');
+  console.log('  dossier.json: ' + dossierBytes + ' bytes -> ' + dossierPath);
+}
+
+main().catch((err) => {
+  console.error('main.ts failed:', err && err.message ? err.message : err);
+  process.exit(1);
+});

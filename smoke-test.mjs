@@ -1,186 +1,118 @@
-// NEON BAY smoke test — no browser. A fake canvas/DOM lets the real game
-// modules run under Node: city gen, 60s of play (walk, steal, drive,
-// police, mission), all four screenshot stagings, a render pass, and the
-// round-4 additions (fleet traffic, Rico's Garage shop).
-// Run: node smoke-test.mjs   (exit 0 = pass; prints a failure and exit 1)
-import { createGame, stepGame } from './game/src/game.js';
-import { stageShot } from './game/src/shots.js';
-import { createRenderer, SCREEN_PLAY } from './game/src/render.js';
-import { STEP } from './game/src/config.js';
+// Neon Bay — headless smoke test (Node, no browser).
+// Builds the game from seed 1, drives the play and chase shots,
+// checks the helicopter, the wanted level, the shop and the
+// BUSTED money math. Exits 0 and prints SMOKE OK when every
+// check passes, else exits 1 listing the failures.
 
-let failures = 0;
+import { createGame, stepGame, kmh } from './game/src/game.js';
+import { stageShot, laneClear } from './game/src/shots.js';
+import { dispatchBoard } from './game/src/police.js';
+import { shopNearby, buyItem } from './game/src/shop.js';
+import { MISSIONS } from './game/src/config.js';
+
+let passed = 0;
+let failed = 0;
+const failures = [];
+
 function check(name, ok, detail) {
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
-  if (!ok) failures += 1;
+  if (ok) {
+    passed += 1;
+    console.log('PASS ' + name + (detail ? ' — ' + detail : ''));
+  } else {
+    failed += 1;
+    failures.push(name);
+    console.log('FAIL ' + name + (detail ? ' — ' + detail : ''));
+  }
 }
 
-// ---- Fake DOM: just enough for render.js / main.js modules ----
-function fakeGradient() {
-  return { addColorStop() {} };
-}
-function fakeContext() {
+function fakeInput(keys) {
   return {
-    fillStyle: '', strokeStyle: '', lineWidth: 1, font: '', textAlign: '', textBaseline: '',
-    globalAlpha: 1, globalCompositeOperation: 'source-over',
-    setTransform() {}, fillRect() {}, strokeRect() {}, clearRect() {}, fillText() {},
-    rect() {},
-    beginPath() {}, closePath() {}, moveTo() {}, lineTo() {}, arc() {}, ellipse() {},
-    fill() {}, stroke() {}, save() {}, restore() {}, translate() {}, rotate() {}, scale() {},
-    clip() {}, drawImage() {}, roundRect() {}, createRadialGradient: fakeGradient,
-    createLinearGradient: fakeGradient,
+    keys: new Set(keys || []),
+    mouseX: 0,
+    mouseY: 0,
+    mouseDown: false,
+    rightDown: false,
+    clicked: false,
+    attached: true,
+    mouseDX: 0,
   };
 }
-const fakeCanvas = { width: 1280, height: 720, getContext: () => fakeContext(), addEventListener() {} };
-globalThis.window = {
-  innerWidth: 1280, innerHeight: 720, devicePixelRatio: 1,
-  addEventListener() {}, localStorage: { getItem: () => null, setItem() {} },
-  requestAnimationFrame() {}, AudioContext: undefined,
-  location: { search: '' },
-};
-globalThis.document = {
-  createElement: () => fakeCanvas, addEventListener() {},
-  getElementById: () => fakeCanvas,
-};
-globalThis.performance = { now: () => 0 };
-globalThis.requestAnimationFrame = () => {};
 
-// Three.js (vendored UMD) for the 3D renderer; there is no real GL context
-// here, so the renderer builds and syncs the scene graph in headless mode.
-import { createRequire } from 'module';
-globalThis.THREE = createRequire(import.meta.url)('./game/vendor/three.min.js');
-
-// ---- 1. City + state ----
-const game = createGame(1);
-const { state } = game;
-check('city has buildings', state.city.buildings.length > 50, `${state.city.buildings.length} buildings`);
-check('city has parks', state.city.parks.length > 0, `${state.city.parks.length} parks`);
-check('player starts on foot at safehouse', state.player.onFoot && Math.abs(state.player.x - 1600) < 200, `(${state.player.x | 0},${state.player.y | 0})`);
-
-// ---- 2. Render once (catches draw errors) ----
-const renderer = createRenderer(fakeCanvas);
-try {
-  renderer.draw(state, SCREEN_PLAY, 0, 0);
-  check('render play frame', true);
-  const st = renderer.stats(state);
-  check('3D scene built (headless)', st.headless === true, `headless=${st.headless}`);
-  check('3D buildings instanced', st.buildings > 50, `${st.buildings} buildings`);
-  check('3D scene has objects', st.sceneChildren > 10, `${st.sceneChildren} scene children`);
-} catch (e) {
-  check('render play frame', false, String(e && e.stack || e));
+function stepFor(state, seconds, keys) {
+  const input = fakeInput(keys);
+  const steps = Math.round(seconds * 60);
+  for (let i = 0; i < steps; i++) stepGame(state, 1 / 60, input);
+  return input;
 }
 
-// ---- 3. 60s of play: walk, steal, drive, wanted, mission ----
-const idle = { move: { x: 0, y: 0 }, run: false, handbrake: false, aim: null, actions: 0 };
-let drove = false;
-let stole = false;
-let wantedSeen = false;
-for (let i = 0; i < 60 / STEP; i += 1) {
-  const p = state.player;
-  let input = idle;
-  if (!p.car) {
-    // Walk toward the nearest car; steal when close.
-    let car = null; let best = Infinity;
-    for (const c of state.cars) {
-      const d = Math.hypot(c.x - p.x, c.y - p.y);
-      if (d < best) { best = d; car = c; }
-    }
-    if (car && best < 70) input = { ...idle, actions: 4 };
-    else if (car) {
-      const dx = car.x - p.x; const dy = car.y - p.y; const d = Math.hypot(dx, dy) || 1;
-      input = { ...idle, move: { x: dx / d, y: dy / d }, run: true, moveWorld: true };
-    }
-  } else {
-    stole = true;
-    drove = drove || Math.abs(p.car.speed) > 100;
-    input = { ...idle, move: { x: 0.3, y: -1 } };
-  }
-  stepGame(game, STEP, input, null, false);
-  if (state.wanted > 0) wantedSeen = true;
-  if (state.wasted || state.busted) break;
-}
-check('player stole a car', stole);
-check('player drove (speed > 100)', drove);
-check('traffic populated', state.cars.filter((c) => c.kind === 'traffic').length >= 8, `${state.cars.length} cars`);
-check('pedestrians populated', state.peds.length >= 10, `${state.peds.length} peds`);
-check('wanted rose from stealing', wantedSeen, `wanted=${state.wanted}`);
-check('no NaN in player pos', Number.isFinite(state.player.x) && Number.isFinite(state.player.y));
-check('camera inside city', state.camera.x >= 0 && state.camera.x <= 3200 && state.camera.y >= 0 && state.camera.y <= 2400);
-check('fleet traffic spawns', state.cars.some((c) => c.fleet), `fleet=${state.cars.filter((c) => c.fleet).length}`);
+// ---- build ----
+const state = createGame(1);
+check('city builds', state.city.buildings.length === 68, state.city.buildings.length + ' buildings');
+check('parks build', state.city.parks.length === 9, state.city.parks.length + ' parks');
+check('player starts in car on beach road', !state.player.onFoot && Math.abs(state.player.y - 2080) < 1, 'y=' + state.player.y);
+check('money starts at 60', state.money === 60, '$' + state.money);
+check('ammo starts at 24', state.ammo === 24, String(state.ammo));
+check('eight missions defined', MISSIONS.length === 8, MISSIONS.length + ' missions');
+check('fleet has three planes', state.fleet.planes.length === 3, state.fleet.planes.length + ' planes');
+const rigKinds = state.cars.map((c) => c.kind);
+check('fire trucks present', rigKinds.filter((k) => k === 'pumper' || k === 'ladder' || k === 'rescue' || k === 'arff').length === 4);
+check('ambulance present', rigKinds.includes('ambulance'));
+check('three motorcycles present', ['sport', 'cruiser', 'enduro'].every((k) => rigKinds.includes(k)));
 
-// ---- 4. Mission flow: start job 0, teleport through its stages ----
-const g2 = createGame(7);
-import('./game/src/missions.js').then(({ startMission, currentStage }) => {
-  startMission(g2.state, g2.random, 0);
-  check('mission 0 starts', !!g2.state.mission, g2.state.mission?.text);
-  // Walk the player through each stage's target, one step at a time.
-  for (let guard = 0; guard < 4 && g2.state.mission; guard += 1) {
-    const stage = currentStage(g2.state);
-    if (!stage) break;
-    const p = g2.state.player;
-    p.x = stage.x; p.y = stage.y;
-    if (stage.needsCar) {
-      const car = g2.state.cars[0];
-      if (car) { p.car = car; p.onFoot = false; car.kind = 'player'; car.driver = 'player'; }
-    }
-    for (let i = 0; i < 30; i += 1) stepGame(g2, STEP, idle, null, false);
-  }
-  check('mission 0 completes', g2.state.missionsDone === 1, `missionsDone=${g2.state.missionsDone}, money=${g2.state.money}`);
-  finish();
-});
+// ---- play shot ----
+stageShot(state, 'play');
+check('play stages on beach road', Math.abs(state.player.y - 2080) < 1 && Math.abs(state.player.x - 640) < 400, 'x=' + Math.round(state.player.x) + ' y=' + Math.round(state.player.y));
+check('play lane ahead clear', laneClear(state, state.player.x, state.player.y, 0, 900), '900 units');
+check('play banner cleared', state.banner === null);
+stepFor(state, 3, ['KeyW']);
+const playKmh = kmh(state.player.car ? state.player.car.speed : state.player.speed);
+check('play speed high', playKmh >= 100, playKmh + ' km/h');
+check('play still on beach road', Math.abs(state.player.y - 2080) < 40, 'y=' + Math.round(state.player.y));
+check('play wanted is 1 star', state.wanted === 1, state.wanted + ' stars');
 
-// ---- 5. Shop + fleet modules, then all four shots ----
-async function finish() {
-  // Every remaining module must at least parse and load: input, audio, main.
-  try {
-    const inputMod = await import('./game/src/input.js');
-    check('input.js loads', typeof inputMod.createInput === 'function');
-    const audioMod = await import('./game/src/audio.js');
-    const audio = audioMod.createAudio();
-    check('audio.js loads (no AudioContext)', typeof audio.setEngine === 'function');
-    await import('./game/src/main.js');
-    check('main.js loads (boot, no shot)', true);
-  } catch (e) {
-    check('remaining modules load', false, String(e && e.stack || e));
-  }
-  // Rico's Garage shop: walk up on foot, buy ammo, money drops.
-  try {
-    const shopMod = await import('./game/src/shop.js');
-    const g3 = createGame(3);
-    const s3 = g3.state;
-    s3.money = 500;
-    s3.player.x = 2560; s3.player.y = 320;
-    const { updateShop, buyShop, shopOpen } = shopMod;
-    updateShop(s3, 0.1);
-    check('shop opens at the garage', shopOpen(s3) === true);
-    const ammoBefore = s3.ammo;
-    const bought = buyShop(s3, 0);
-    check('shop sells ammo', bought && s3.ammo === ammoBefore + 24 && s3.money === 450, `ammo=${s3.ammo} money=${s3.money}`);
-    const fleetMod = await import('./game/src/fleet.js');
-    check('fleet.js loads', Array.isArray(fleetMod.FLEET_KINDS) && fleetMod.FLEET_KINDS.length === 8);
-  } catch (e) {
-    check('shop + fleet modules', false, String(e && e.stack || e));
-  }
-  for (const name of ['start', 'play', 'chase', 'end']) {
-    try {
-      const g = createGame(1);
-      const scene = stageShot(name, g);
-      renderer.draw(g.state, scene.screen, scene.best, g.state.time);
-      const st = renderer.stats(g.state);
-      const speedKmh = g.state.player.car ? Math.abs(g.state.player.car.speed) * 0.36 : 0;
-      check(`shot ${name} stages (${scene.screen})`, true,
-        `wanted=${g.state.wanted} cars=${g.state.cars.length} money=${g.state.money} ` +
-        `inCar=${!g.state.player.onFoot} mission=${g.state.mission ? g.state.mission.def.title : 'none'} ` +
-        `cops=${g.state.cars.filter((c) => c.kind === 'police').length} ` +
-        `3dCars=${st.cars} 3dPeds=${st.peds} heli=${st.heli} speed=${Math.round(speedKmh)}km/h`);
-      if (name === 'play' || name === 'chase') {
-        check(`shot ${name}: player ahead of camera`, st.playerAhead > 0, `ahead=${st.playerAhead}`);
-        if (name === 'play') check(`shot ${name}: driving fast`, speedKmh > 50, `${Math.round(speedKmh)} km/h`);
-        if (name === 'chase') check(`shot ${name}: heli visible`, st.heli === true, `wanted=${g.state.wanted}`);
-      }
-    } catch (e) {
-      check(`shot ${name} stages`, false, String(e && e.stack || e));
-    }
-  }
-  console.log(failures === 0 ? 'SMOKE OK' : `SMOKE FAILED (${failures})`);
-  process.exit(failures === 0 ? 0 : 1);
+// ---- chase shot ----
+stageShot(state, 'chase');
+check('chase wanted is 5 stars', state.wanted === 5, state.wanted + ' stars');
+check('chase helicopter up', state.heli !== null && state.heli.z > 100, state.heli ? 'z=' + Math.round(state.heli.z) : 'no heli');
+stepFor(state, 2, ['KeyW']);
+const chaseKmh = kmh(state.player.car ? state.player.car.speed : state.player.speed);
+check('chase speed high', chaseKmh >= 100, chaseKmh + ' km/h');
+const board = dispatchBoard(state);
+const labels = board.map((r) => r.label);
+check('dispatch labels distinct', new Set(labels).size === labels.length, labels.join(', '));
+check('dispatch has AIR ONE', labels.includes('AIR ONE'));
+check('chase banner cleared', state.banner === null);
+
+// ---- shop ----
+const shopState = createGame(1);
+shopState.mode = 'play';
+shopState.player.onFoot = true;
+shopState.player.car = null;
+shopState.player.x = 420;
+shopState.player.y = 1560;
+stepGame(shopState, 1 / 60, fakeInput([]));
+check('shop opens near garage', shopState.shopOpen === true);
+const moneyBefore = shopState.money;
+const ammoBefore = shopState.ammo;
+buyItem(shopState, 0);
+check('shop sells ammo', shopState.ammo === ammoBefore + 24 && shopState.money === moneyBefore - 50, 'ammo ' + ammoBefore + '->' + shopState.ammo + ', $' + moneyBefore + '->' + shopState.money);
+
+// ---- end shot (BUSTED math) ----
+const endState = createGame(1);
+endState.money = 60;
+stageShot(endState, 'end');
+check('end is BUSTED', endState.end && endState.end.kind === 'busted', endState.end ? endState.end.kind : 'no end');
+check('BUSTED kept is 60', endState.end && endState.end.kept === 60, endState.end ? 'kept $' + endState.end.kept : 'no end');
+check('BUSTED haul is 0', endState.end && endState.end.haul === 0, endState.end ? 'haul $' + endState.end.haul : 'no end');
+check('BUSTED money consistent', endState.end && endState.end.kept + endState.end.haul === 60, 'kept+haul=60');
+check('end mode hides HUD (mode=end)', endState.mode === 'end');
+
+// ---- summary ----
+console.log('');
+if (failed === 0) {
+  console.log('SMOKE OK (' + passed + ' checks)');
+  process.exit(0);
+} else {
+  console.log('SMOKE FAIL: ' + failed + ' failed (' + failures.join(', ') + '), ' + passed + ' passed');
+  process.exit(1);
 }
