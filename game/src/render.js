@@ -1,7 +1,4 @@
-// NEON BAY — 3D renderer (Three.js r158, low-poly, golden hour). The sim
-// stays top-down 2D; this turns it into a real 3D city (instanced
-// buildings/cars/people, chase/TPS camera, heli, rain, particles), 2D HUD
-// overlay. No assets, no network. Sim (x,y) -> three (x,0,y).
+// NEON BAY — 3D renderer (Three.js r158, low-poly, golden hour). Sim (x,y) -> three (x,0,y).
 import { CITY, FONT, PALETTE, VIEW } from './config.js';
 import { drawCrosshair, drawHud } from './hud.js';
 import { HL } from './patchkit.js';
@@ -39,7 +36,6 @@ function wrapAngle(a) {
   return a;
 }
 
-/** A canvas texture from a 2D painter. */
 function makeTex(w, h, paint) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
@@ -48,7 +44,6 @@ function makeTex(w, h, paint) {
   t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
-/** Soft round glow (sun, lamps, smoke, particle dots). */
 function glowTex(inner, outer) {
   return makeTex(128, 128, (g) => {
     const v = g.createRadialGradient(64, 64, 4, 64, 64, 62);
@@ -57,7 +52,6 @@ function glowTex(inner, outer) {
   });
 }
 
-/** The ground: one plane, one procedural texture (roads, zebra, beach, sea edge). */
 function groundTexture() {
   const S = 2048 / CITY.width; // px per world unit
   return makeTex(2048, 1536, (g) => {
@@ -93,7 +87,6 @@ function groundTexture() {
   });
 }
 
-/** Building facades: pale base, dark windows, some lit at dusk. */
 function facadeTexture() {
   return makeTex(128, 256, (g) => {
     g.fillStyle = '#d9d4c8'; g.fillRect(0, 0, 128, 256);
@@ -104,7 +97,6 @@ function facadeTexture() {
   });
 }
 
-/** A neon sign (HOTEL, BAR, ...) as a glowing text plane. */
 function signTexture(word, color) {
   return makeTex(256, 64, (g) => {
     g.clearRect(0, 0, 256, 64);
@@ -486,16 +478,21 @@ export function createRenderer(canvas, hudCanvas) {
     const px = p.car ? p.car.x : p.x;
     const py = p.car ? p.car.y : p.y;
     const fx = Math.cos(state.camera.angle), fy = Math.sin(state.camera.angle);
-    const tx = px + fx * 150 - fy * 50;
-    const ty = py + fy * 150 + fx * 50;
-    heliPos.x = lerp(heliPos.x, tx, Math.min(1, dt * 1.2));
-    heliPos.y = lerp(heliPos.y, 170, Math.min(1, dt * 1.2));
-    heliPos.z = lerp(heliPos.z, ty, Math.min(1, dt * 1.2));
+    const shot = !!state._hlShot; // staged shot: park the heli in frame (low, ahead) instead of letting it fly in
+    const tx = px + fx * 150 - fy * (shot ? 40 : 50);
+    const ty = py + fy * 150 + fx * (shot ? 40 : 50);
+    const hh = shot ? 85 : 170;
+    if (shot) { heliPos.x = tx; heliPos.y = hh; heliPos.z = ty; }
+    else {
+      heliPos.x = lerp(heliPos.x, tx, Math.min(1, dt * 1.2));
+      heliPos.y = lerp(heliPos.y, hh, Math.min(1, dt * 1.2));
+      heliPos.z = lerp(heliPos.z, ty, Math.min(1, dt * 1.2));
+    }
     heli.position.copy(heliPos);
     heli.rotation.y = rotY(Math.atan2(py - heliPos.z, px - heliPos.x));
     rotor.rotation.y += dt * 22;
-    _dir.set(heliPos.x - px, 170, heliPos.z - py).normalize();
-    cone.position.set((heliPos.x + px) / 2, 85, (heliPos.z + py) / 2);
+    _dir.set(heliPos.x - px, hh, heliPos.z - py).normalize();
+    cone.position.set((heliPos.x + px) / 2, hh / 2, (heliPos.z + py) / 2);
     cone.quaternion.setFromUnitVectors(_up, _dir);
     pool.position.set(px, 1, py);
     pool.material.opacity = 0.12 + 0.08 * Math.sin(time * 4);
@@ -701,7 +698,6 @@ export function createRenderer(canvas, hudCanvas) {
     }
   }
 
-  /** Screen pixels -> a world point on the ground plane (for menus). */
   function toWorld(clientX, clientY, cam) {
     const nx = (clientX / hudCanvas.width) * 2 - 1;
     const ny = -((clientY / hudCanvas.height) * 2 - 1);
@@ -710,8 +706,7 @@ export function createRenderer(canvas, hudCanvas) {
     const t = -camera.position.y / dir.y;
     return { x: camera.position.x + dir.x * t, y: camera.position.z + dir.z * t };
   }
-  /** World point -> screen pixels (1280x720 logical). */
-  function toScreen(wx, wy, cam) {
+    function toScreen(wx, wy, cam) {
     const v = new THREE.Vector3(wx, 0, wy).project(camera);
     return { x: ((v.x + 1) / 2) * VIEW.width, y: ((1 - v.y) / 2) * VIEW.height };
   }

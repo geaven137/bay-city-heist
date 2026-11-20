@@ -1,10 +1,5 @@
-// NEON BAY — the screenshot scenes behind ?shot=start|play|chase|end.
-// Each one plays the real rules forward from a fresh game with a simple
-// autopilot (walk to a car, steal it, drive the road grid toward a
-// waypoint, ram the police), so the frame is what a short game really
-// looks like and the same seed always gives the same frame. The cover
-// (start) is the title over the living city; the chase shot is the money
-// shot — wanted stars, police, minimap and a mission objective at once.
+// NEON BAY — screenshot scenes for ?shot=start|play|chase|end. Each plays
+// the real rules forward (autopilot: steal a car, drive, ram police).
 import { CITY, STEP } from './config.js';
 import { atIntersection, hitsBuilding, nearestCentre, roadCentresX, roadCentresY } from './world.js';
 import { stepGame } from './game.js';
@@ -31,7 +26,7 @@ function walkToward(game, tx, ty) {
   return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0, moveWorld: true };
 }
 
-/** Drive the player's car toward (tx, ty) on the road grid: at each intersection pick the street that leads toward the target (greedy, */
+/** Drive the car toward (tx, ty) on the road grid. */
 function driveToward(game, tx, ty) {
   const car = game.state.player.car;
   if (!car) return idleInput();
@@ -101,9 +96,9 @@ function stealNearestCar(game, limit) {
   return !!game.state.player.car;
 }
 
-/** Staging-only separation: after the drive, police cars that ended up tailgating in the player's lane read as one blob with the player car */
+/** Spread police tailgating the player car into separate lanes. */
 const SPREAD_LATS = [150, -150, 220, -220];
-/** Chase staging only: police are faster (560 vs 520), so left alone they catch up, get in front and pin the player to 0 km/h. A cop ahead of the */
+/** Chase: keep police behind the player so they don't pin it to 0 km/h. */
 function trailPolice(game) {
   const p = game.state.player;
   const car = p.car;
@@ -160,7 +155,7 @@ function spreadPolice(game) {
   }
 }
 
-/** Drive the beach road (y = 2080) out and back at full throttle: a long straight with the sea and the palms on one side, so the frame catches */
+/** Drive the beach road out and back at full throttle. */
 const BEACH_Y = 2080;
 function driveBeach(game, dir) {
   const car = game.state.player.car;
@@ -169,10 +164,31 @@ function driveBeach(game, dir) {
   return driveToward(game, target.x, target.y);
 }
 
-/**
- * Set `game` to the named scene (start, play, chase or end; any other name
- * is start) and return the screen to draw over it and the best money to show.
- */
+/** Staging only: clear the camera view. */
+function clearShot(g) {
+  const s = g.state, c = s.camera, fx = Math.cos(c.angle), fy = Math.sin(c.angle);
+  for (const p of s.peds) {
+    const dx = p.x - c.x, dy = p.y - c.y;
+    if (dx * dx + dy * dy < 40000 && dx * fx + dy * fy > -20) { p.x = c.x - fx * 320; p.y = c.y - fy * 320; }
+  }
+  const pl = s.player, qx = pl.car ? pl.car.x : pl.x, qy = pl.car ? pl.car.y : pl.y;
+  const ca = (qx - c.x) * fx + (qy - c.y) * fy;
+  for (const l of s.city.lamps) {
+    const dx = l.x - c.x, dy = l.y - c.y, a = dx * fx + dy * fy, la = dy * fx - dx * fy;
+    if (a > 0 && Math.abs(a - ca) < 80 && Math.abs(la) < a * 0.12) {
+      let nx = c.x - fy * 70, ny = c.y + fx * 70;
+      if (hitsBuilding(s.city, nx, ny, 14)) { nx = c.x + fy * 70; ny = c.y - fx * 70; }
+      if (!hitsBuilding(s.city, nx, ny, 14)) { c.x = nx; c.y = ny; }
+      break;
+    }
+  }
+  if (!pl.car) { // on foot (end shot): pull the lens back so the crowd/lamp by the cop is not in the lens
+    const nx = c.x - fx * 80, ny = c.y - fy * 80;
+    if (!hitsBuilding(s.city, nx, ny, 14)) { c.x = nx; c.y = ny; }
+  }
+}
+
+/** Set `game` to the named scene and return the screen + best money. */
 export function stageShot(name, game) {
   const { state, random } = game;
   if (name === 'play' || name === 'chase') {
@@ -191,6 +207,7 @@ export function stageShot(name, game) {
         if (fast >= 12) break;
       }
       spreadPolice(game);
+      clearShot(game);
       return { screen: SCREEN_PLAY, best: state.money };
     }
     startMission(state, random, 3);
@@ -211,6 +228,8 @@ export function stageShot(name, game) {
       if (fast >= 12 && elapsed > 5) break;
     }
     spreadPolice(game);
+    clearShot(game);
+    state.banner = null; // drop the fading WANTED banner so the chase frame is clean
     return { screen: SCREEN_PLAY, best: state.money };
   }
   if (name === 'end') {
@@ -273,6 +292,7 @@ export function stageShot(name, game) {
             break;
           }
         }
+        clearShot(game);
         return { screen: SCREEN_BUSTED, best: state.money };
       }
     }
