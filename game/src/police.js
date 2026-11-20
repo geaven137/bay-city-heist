@@ -25,9 +25,14 @@ export function hideBanner(state) {
 }
 
 export function stepCops(state, dt) {
-  // Heat fades when the player is out of sight and slow.
+  // Heat fades when the player is out of sight and slow — but
+  // never while a unit is close enough to keep the chase on.
   const hidden = state.player.onFoot && state.player.speed < 20;
-  const fade = (hidden ? WANTED.hidePerSec : WANTED.decayPerSec) * dt;
+  const nearest = state.cars.reduce((best, c) => {
+    if (c.kind !== 'police' || c.wrecked) return best;
+    return Math.min(best, Math.hypot(c.x - state.player.x, c.y - state.player.y));
+  }, Infinity);
+  const fade = (nearest < 80 ? 0 : hidden ? WANTED.hidePerSec : WANTED.decayPerSec) * dt;
   if (state.heat > 0) {
     state.heat = Math.max(0, state.heat - fade);
     state.wanted = Math.ceil(state.heat);

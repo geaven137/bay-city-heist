@@ -166,13 +166,17 @@ function handleInput(state, dt, input) {
     if (keyHeld(input, KEYS.back)) gas -= 0.7;
     const top = car.kind === 'police' ? CARS.policeTop : PLAYER.driveTop;
     car.speed += gas * PLAYER.driveAccel * dt;
-    if (keyHeld(input, KEYS.brake)) car.speed *= Math.max(0, 1 - 3.2 * dt);
+    const braking = keyHeld(input, KEYS.brake);
+    if (braking) car.speed *= Math.max(0, 1 - 3.2 * dt);
     car.speed = Math.max(-top * 0.45, Math.min(top, car.speed));
     let steer = 0;
     if (keyHeld(input, KEYS.left)) steer += 1;
     if (keyHeld(input, KEYS.right)) steer -= 1;
     const dir = car.speed >= 0 ? 1 : -1;
-    car.angle += steer * PLAYER.turnRate * (Math.abs(car.speed) / top) * dir * dt;
+    // Handbrake (SHIFT) breaks rear grip: the car turns sharper
+    // at the cost of speed, so a tight corner stays possible.
+    const grip = braking ? 1.6 : 1;
+    car.angle += steer * PLAYER.turnRate * grip * (Math.abs(car.speed) / top) * dir * dt;
     car.x += Math.cos(car.angle) * car.speed * dt;
     car.y += Math.sin(car.angle) * car.speed * dt;
     car.wheelSpin += dt * car.speed;

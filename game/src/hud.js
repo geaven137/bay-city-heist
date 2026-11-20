@@ -131,9 +131,10 @@ function drawPlay(ctx, state) {
     ctx.fillStyle = '#ffd23f';
     ctx.font = 'bold 24px sans-serif';
     ctx.fillText('JOB ' + (idx + 1) + '/8 — ' + def.name + ' — ' + def.giver, 640, 36);
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '19px sans-serif';
     const secs = Math.max(0, Math.ceil(state.missionTimer));
+    // The deadline turns red under 30 s so the player feels it.
+    ctx.fillStyle = secs < 30 ? '#ff6b5e' : '#ffffff';
+    ctx.font = '19px sans-serif';
     ctx.fillText(def.goal + '  •  ' + secs + 's', 640, 64);
     // Compass strip.
     panel(ctx, 500, 78, 280, 34, 0.6);
