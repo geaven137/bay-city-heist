@@ -1,363 +1,226 @@
-import { CITY, STEP } from './config.js';
-import { atIntersection, hitsBuilding, nearestCentre, roadCentresX, roadCentresY } from './world.js';
-import { stepGame } from './game.js';
-import { addWanted } from './police.js';
+// Neon Bay — screenshot staging.
+// When the page opens with ?shot=<name>&seed=1 it must show the
+// game at its best in one frame: the car on the beach road with
+// the sea on its right, the camera square behind it on the road
+// axis, a clear lane ahead, the cops in formation behind, the
+// helicopter up with its spotlight, and no big banner across
+// the middle. The end frame shows the BUSTED panel with honest
+// numbers and no gameplay HUD behind it.
+
+import { WORLD, PLAYER } from './config.js';
+import { endRun } from './combat.js';
+import { hideBanner, showBanner } from './police.js';
 import { startMission } from './missions.js';
-import { exitCar, nearestCar } from './vehicles.js';
-import { SCREEN_BUSTED, SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 24;
-const CHASE_SECONDS = 22;
-const BEACH_Y = 2080;
+const BEACH_Y = WORLD.beachY;
 
-function idleInput() {
-  return { move: { x: 0, y: 0 }, run: false, handbrake: false, aim: null, actions: 0 };
-}
-
-function walkToward(game, tx, ty) {
-  const p = game.state.player;
-  const dx = tx - p.x, dy = ty - p.y, d = Math.hypot(dx, dy);
-  if (d < 24) return idleInput();
-  return { move: { x: dx / d, y: dy / d }, run: true, handbrake: false, aim: null, actions: 0, moveWorld: true };
-}
-
-function driveToward(game, tx, ty) {
-  const car = game.state.player.car;
-  if (!car) return idleInput();
-  const dx = tx - car.x, dy = ty - car.y, dist = Math.hypot(dx, dy);
-  if (dist < 70) return idleInput();
-  if (car.autoAxis === undefined) {
-    const onH = Math.abs(car.y - nearestCentre(roadCentresY, car.y)) <= 26;
-    const onV = Math.abs(car.x - nearestCentre(roadCentresX, car.x)) <= 26;
-    if (onH && !onV) car.autoAxis = 'x';
-    else if (onV && !onH) car.autoAxis = 'y';
-    else car.autoAxis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y';
-    car.autoDir = car.autoAxis === 'x' ? (Math.sign(dx) || 1) : (Math.sign(dy) || 1);
-    car.autoX = car.x;
-    car.autoY = car.y;
-  }
-  if (atIntersection(car.x, car.y)) {
-    if (car.autoAxis === 'x' && Math.abs(dy) > 160 && Math.abs(dx) < 160) {
-      car.autoAxis = 'y'; car.autoDir = Math.sign(dy) || 1;
-    } else if (car.autoAxis === 'y' && Math.abs(dx) > 160 && Math.abs(dy) < 160) {
-      car.autoAxis = 'x'; car.autoDir = Math.sign(dx) || 1;
-    }
-  }
-  const wantAngle = car.autoAxis === 'x' ? (car.autoDir > 0 ? 0 : Math.PI) : (car.autoDir > 0 ? Math.PI / 2 : -Math.PI / 2);
-  let diff = wantAngle - car.angle;
-  while (diff > Math.PI) diff -= Math.PI * 2;
-  while (diff < -Math.PI) diff += Math.PI * 2;
-  const steer = Math.max(-1, Math.min(1, diff * 2.4));
-  const gas = Math.abs(diff) > 0.9 ? 0 : -1;
-  const handbrake = Math.abs(diff) > 2.4;
-  if (Math.hypot(car.x - car.autoX, car.y - car.autoY) > 240) car.autoAxis = undefined;
-  return { move: { x: steer, y: gas }, run: false, handbrake, aim: null, actions: 0 };
-}
-
-function runSteps(game, seconds, inputFn, harmless) {
-  const steps = Math.floor(seconds / STEP);
-  for (let i = 0; i < steps; i += 1) {
-    stepGame(game, STEP, inputFn(game, i), null, harmless);
-    if (game.state.wasted || game.state.busted) break;
-  }
-}
-
-function stealNearestCar(game, limit) {
-  const steps = Math.floor(limit / STEP);
-  for (let i = 0; i < steps; i += 1) {
-    const p = game.state.player;
-    if (p.car) return true;
-    const car = nearestCar(game.state, p.x, p.y, 900);
-    let input;
-    if (car && Math.hypot(car.x - p.x, car.y - p.y) < 70) {
-      input = idleInput();
-      input.actions = 4;
-    } else if (car) input = walkToward(game, car.x, car.y);
-    else input = idleInput();
-    stepGame(game, STEP, input, null, false);
-    if (game.state.wasted || game.state.busted) return false;
-  }
-  const p = game.state.player;
-  const car = nearestCar(game.state, p.x, p.y, 1400);
-  if (!car) return false;
-  p.x = car.x + 40;
-  p.y = car.y + 20;
-  stepGame(game, STEP, { ...idleInput(), actions: 4 }, null, false);
-  return !!game.state.player.car;
-}
-
-const SPREAD_LATS = [150, -150, 220, -220];
-function trailPolice(game) {
-  const p = game.state.player;
+function putOnBeach(state, x) {
+  const p = state.player;
   const car = p.car;
-  if (!car) return;
-  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
-  let i = 0;
-  for (const c of game.state.cars) {
-    if (c.kind !== 'police') continue;
-    const ahead = (c.x - car.x) * fx + (c.y - car.y) * fy;
-    if (ahead > -40) {
-      const back = 150 + (i % 3) * 90;
-      const lat = (i % 2 === 0 ? 1 : -1) * 72;
-      const nx = car.x - fx * back - fy * lat;
-      const ny = car.y - fy * back + fx * lat;
-      if (!hitsBuilding(game.state.city, nx, ny, 20)) {
-        c.x = nx; c.y = ny; c.angle = car.angle; c.speed = Math.max(c.speed, 320);
-      }
-    }
-    i += 1;
+  p.x = x;
+  p.y = BEACH_Y;
+  p.angle = 0;
+  p.onFoot = false;
+  if (car) {
+    car.x = x;
+    car.y = BEACH_Y;
+    car.angle = 0;
+    car.speed = PLAYER.driveTop;
+    car.targetSpeed = PLAYER.driveTop;
+    car.wrecked = false;
+    car.health = 100;
+    p.car = car;
   }
+  p.speed = PLAYER.driveTop;
 }
 
-function spreadPolice(game) {
-  const { state } = game;
-  const pcar = state.player.car;
-  if (!pcar) return;
-  const cam = state.camera;
-  const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
-  const px = -fy, py = fx;
-  const pDepth = (pcar.x - cam.x) * fx + (pcar.y - cam.y) * fy;
-  const pLat = (pcar.x - cam.x) * px + (pcar.y - cam.y) * py;
-  let next = 0;
-  for (const c of state.cars) {
-    if (c.kind !== 'police') continue;
-    const depth = (c.x - cam.x) * fx + (c.y - cam.y) * fy;
-    const lat = (c.x - cam.x) * px + (c.y - cam.y) * py;
-    if (Math.abs(lat - pLat) >= 110 || depth <= 0 || depth >= pDepth + 280) continue;
-    for (let k = 0; k < SPREAD_LATS.length; k += 1) {
-      const latOff = SPREAD_LATS[(next + k) % SPREAD_LATS.length];
-      const nx = cam.x + fx * (pDepth + 160) + px * (pLat + latOff);
-      const ny = cam.y + fy * (pDepth + 160) + py * (pLat + latOff);
-      if (nx < 40 || nx > CITY.width - 40 || ny < 40 || ny > CITY.height - 40) continue;
-      if (hitsBuilding(state.city, nx, ny, 20)) continue;
-      c.x = nx;
-      c.y = ny;
-      c.angle = pcar.angle;
-      c.speed = pcar.speed;
-      next = (next + k + 1) % SPREAD_LATS.length;
-      break;
-    }
+// Is the lane ahead of (x, y) along angle clear for `dist`?
+export function laneClear(state, x, y, angle, dist) {
+  const fx = Math.cos(angle);
+  const fy = Math.sin(angle);
+  const px = -fy;
+  const py = fx;
+  for (const b of state.city.buildings) {
+    const dx = b.x - x;
+    const dy = b.y - y;
+    const ahead = dx * fx + dy * fy;
+    if (ahead < 0 || ahead > dist) continue;
+    const side = Math.abs(dx * px + dy * py);
+    const halfW = Math.max(b.w, b.d) / 2 + 30;
+    if (side < halfW) return false;
   }
+  return true;
 }
 
-function driveBeach(game, dir) {
-  const car = game.state.player.car;
-  if (!car) return idleInput();
-  return driveToward(game, dir > 0 ? 3000 : 200, BEACH_Y);
-}
-
-function beachStart(game) {
-  const car = game.state.player.car;
-  if (!car) return;
-  car.x = 600; car.y = BEACH_Y; car.angle = 0;
-  car.autoAxis = undefined; car.autoDir = undefined; car.autoX = car.x; car.autoY = car.y;
-  car.speed = 0;
-  const cam = game.state.camera;
-  cam.x = car.x - 120; cam.y = car.y; cam.angle = 0; cam.shoulder = 0; cam.shake = 0;
-}
-
-function beachAligned(game) {
-  const car = game.state.player.car;
-  if (!car) return false;
-  return Math.abs(car.y - BEACH_Y) <= 26 && Math.abs(Math.cos(car.angle)) > 0.9;
-}
-
-function clearAhead(game) {
-  const s = game.state, car = s.player.car;
-  if (!car) return;
-  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
-  for (const c of s.cars) {
-    if (c === car || c.kind === 'police') continue;
-    const dx = c.x - car.x, dy = c.y - car.y;
-    const ahead = dx * fx + dy * fy, lat = -dx * fy + dy * fx;
-    if (ahead > -40 && ahead < 260 && Math.abs(lat) < 60) {
-      c.x = car.x - fx * 300; c.y = car.y - fy * 300;
-    }
+// Slide the car along the beach road until the lane ahead is clear.
+function findClearSpot(state, x0) {
+  let x = x0;
+  for (let i = 0; i < 12; i++) {
+    if (laneClear(state, x, BEACH_Y, 0, 900)) return x;
+    x += 90;
+    if (x > WORLD.beachX1 - 100) x = WORLD.beachX0 + 60;
   }
+  return x;
 }
 
-function beachFrame(game, kmh) {
-  const s = game.state, car = s.player.car;
-  if (!car) return;
-  if (!beachAligned(game) || Math.abs(car.speed) < 250) {
-    car.x = 1600; car.y = BEACH_Y; car.angle = 0;
-    car.autoAxis = undefined; car.autoDir = undefined; car.autoX = car.x; car.autoY = car.y;
-    car.speed = kmh / 0.36;
-    s.camera.x = car.x - 120; s.camera.y = car.y; s.camera.angle = 0;
-    s.camera.shoulder = 0; s.camera.shake = 0;
-  } else if (car.speed < kmh / 0.36) {
-    car.speed = kmh / 0.36;
-  }
-  clearAhead(game);
+// Police in formation behind the player, never stacked.
+function lineUpCops(state) {
+  const p = state.player;
+  const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
+  const fx = Math.cos(p.angle);
+  const fy = Math.sin(p.angle);
+  const px = -fy;
+  const py = fx;
+  cops.forEach((car, i) => {
+    const back = 70 + i * 48;
+    const side = (i % 2 === 0 ? -1 : 1) * (20 + (i % 3) * 16);
+    car.x = p.x - fx * back + px * side;
+    car.y = p.y - fy * back + py * side;
+    car.angle = p.angle;
+    const spd = Math.abs(p.car ? p.car.speed : 0);
+    car.speed = spd * 0.96;
+    car.targetSpeed = spd;
+    car.retire = false;
+    car.slot = i;
+  });
 }
 
-function stagePolice(game) {
-  const s = game.state, car = s.player.car;
-  if (!car) return;
-  const fx = Math.cos(car.angle), fy = Math.sin(car.angle);
-  const px = -fy, py = fx;
-  let i = 0;
-  for (const c of s.cars) {
-    if (c.kind !== 'police') continue;
-    const back = 170 + i * 70;
-    let placed = false;
-    for (const lat of (i % 2 === 0 ? [72, -72, 0] : [-72, 72, 0])) {
-      const nx = car.x - fx * back + px * lat;
-      const ny = car.y - fy * back + py * lat;
-      if (hitsBuilding(s.city, nx, ny, 20)) continue;
-      c.x = nx; c.y = ny; c.angle = car.angle; c.speed = Math.max(c.speed, 330);
-      placed = true; break;
-    }
-    if (!placed) { c.x = car.x - fx * back; c.y = car.y - fy * back; c.angle = car.angle; c.speed = 330; }
-    i += 1;
-  }
-}
-
-function reframeCamera(g) {
-  const s = g.state, cam = s.camera;
-  const p = s.player, tx = p.car ? p.car.x : p.x, ty = p.car ? p.car.y : p.y;
-  const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
-  let dist = 120;
-  while (dist > 30 && hitsBuilding(s.city, tx - fx * dist, ty - fy * dist, 14)) dist -= 12;
-  cam.x = tx - fx * dist; cam.y = ty - fy * dist;
-}
-
-function clearShot(g) {
-  const s = g.state, c = s.camera, fx = Math.cos(c.angle), fy = Math.sin(c.angle);
-  for (const p of s.peds) {
-    const dx = p.x - c.x, dy = p.y - c.y;
-    if (dx * dx + dy * dy < 40000 && dx * fx + dy * fy > -20) { p.x = c.x - fx * 320; p.y = c.y - fy * 320; }
-  }
-  const pl = s.player, qx = pl.car ? pl.car.x : pl.x, qy = pl.car ? pl.car.y : pl.y;
-  const ca = (qx - c.x) * fx + (qy - c.y) * fy;
-  for (const l of s.city.lamps) {
-    const dx = l.x - c.x, dy = l.y - c.y, a = dx * fx + dy * fy, la = dy * fx - dx * fy;
-    if (a > 0 && Math.abs(a - ca) < 80 && Math.abs(la) < a * 0.12) {
-      let nx = c.x - fy * 70, ny = c.y + fx * 70;
-      if (hitsBuilding(s.city, nx, ny, 14)) { nx = c.x + fy * 70; ny = c.y - fx * 70; }
-      if (!hitsBuilding(s.city, nx, ny, 14)) { c.x = nx; c.y = ny; }
-      break;
+// Move any traffic out of the lane ahead, behind the camera.
+function sweepLane(state) {
+  const p = state.player;
+  const fx = Math.cos(p.angle);
+  const fy = Math.sin(p.angle);
+  const px = -fy;
+  const py = fx;
+  for (const car of state.cars) {
+    if (car.kind === 'player' || car.kind === 'police') continue;
+    const dx = car.x - p.x;
+    const dy = car.y - p.y;
+    const ahead = dx * fx + dy * fy;
+    const side = Math.abs(dx * px + dy * py);
+    if (ahead > -20 && ahead < 520 && side < 46) {
+      const s = car.serial % 2 === 0 ? 1 : -1;
+      car.x = p.x - fx * 150 + px * 60 * s;
+      car.y = p.y - fy * 150 + py * 60 * s;
+      car.angle = p.angle;
+      car.targetSpeed = 0;
+      car.speed = 0;
     }
   }
-  if (!pl.car) {
-    const nx = c.x - fx * 80, ny = c.y - fy * 80;
-    if (!hitsBuilding(s.city, nx, ny, 14)) { c.x = nx; c.y = ny; }
+  for (const ped of state.peds) {
+    const dx = ped.x - p.x;
+    const dy = ped.y - p.y;
+    const ahead = dx * fx + dy * fy;
+    const side = Math.abs(dx * px + dy * py);
+    if (ahead > 0 && ahead < 320 && side < 34) {
+      ped.x = p.x + px * 90;
+      ped.y = p.y + py * 90;
+    }
   }
 }
 
-export function stageShot(name, game) {
-  const { state, random } = game;
-  if (name === 'play' || name === 'chase') {
-    stealNearestCar(game, 14);
-    beachStart(game);
-    if (name === 'play') {
-      let fast = 0, dir = 1;
-      const steps = Math.floor(PLAY_SECONDS / STEP);
-      for (let i = 0; i < steps; i += 1) {
-        const car = game.state.player.car;
-        if (car && ((dir > 0 && car.x > 2900) || (dir < 0 && car.x < 300))) dir = -dir;
-        stepGame(game, STEP, game.state.player.car ? driveBeach(game, dir) : idleInput(), null, false);
-        if (game.state.wasted || game.state.busted) break;
-        const c = game.state.player.car;
-        fast = c && beachAligned(game) && Math.abs(c.speed) > 220 ? fast + 1 : 0;
-        if (fast >= 12) break;
-      }
-      beachFrame(game, 155);
-      stagePolice(game);
-      spreadPolice(game);
-      clearShot(game);
-      reframeCamera(game);
-      state.banner = null;
-      return { screen: SCREEN_PLAY, best: state.money };
-    }
-    startMission(state, random, 3);
-    addWanted(state, 1, state.player.x, state.player.y);
-    let fast = 0, dir = 1, elapsed = 0;
-    const steps = Math.floor(CHASE_SECONDS / STEP);
-    for (let i = 0; i < steps; i += 1) {
-      const car = game.state.player.car;
-      if (car && ((dir > 0 && car.x > 2900) || (dir < 0 && car.x < 300))) dir = -dir;
-      stepGame(game, STEP, game.state.player.car ? driveBeach(game, dir) : idleInput(), null, false);
-      elapsed += STEP;
-      trailPolice(game);
-      if (game.state.wasted || game.state.busted) break;
-      const c = game.state.player.car;
-      fast = c && beachAligned(game) && Math.abs(c.speed) > 250 ? fast + 1 : 0;
-      if (fast >= 12 && elapsed > 5) break;
-    }
-    beachFrame(game, 160);
-    stagePolice(game);
-    spreadPolice(game);
-    clearShot(game);
-    reframeCamera(game);
+function stagePlay(state) {
+  state.mode = 'play';
+  state.money = PLAYER.startMoney;
+  state.health = PLAYER.health;
+  state.ammo = PLAYER.startAmmo;
+  state.wanted = 1;
+  state.heat = 1;
+  state.end = null;
+  const x = findClearSpot(state, 640);
+  putOnBeach(state, x);
+  startMission(state, 0);
+  state.missionTimer = 97;
+  hideBanner(state);
+  sweepLane(state);
+  state.talk = {
+    name: 'Mara Voss',
+    text: 'Kai. A singer needs a ride to the marina stage. Don\u2019t scratch the paint — it isn\u2019t yours.',
+    timer: 30,
+  };
+}
+
+function stageChase(state) {
+  state.mode = 'play';
+  state.money = PLAYER.startMoney;
+  state.health = 94;
+  state.ammo = PLAYER.startAmmo;
+  state.wanted = 5;
+  state.heat = 5;
+  state.end = null;
+  const x = findClearSpot(state, 1560);
+  putOnBeach(state, x);
+  // Four units, then the helicopter.
+  state.heli = { x: state.player.x - 70, y: state.player.y - 50, z: 150, angle: 0, rotor: 0 };
+  startMission(state, 2);
+  state.missionTimer = 145;
+  lineUpCops(state);
+  sweepLane(state);
+  hideBanner(state);
+  state.talk = {
+    name: 'Mara Voss',
+    text: 'Make some noise at the bank, then vanish. I want zero stars on you.',
+    timer: 30,
+  };
+}
+
+function stageEnd(state) {
+  state.mode = 'play';
+  state.money = PLAYER.startMoney;
+  state.health = 40;
+  state.ammo = PLAYER.startAmmo;
+  const x = findClearSpot(state, 900);
+  putOnBeach(state, x);
+  if (state.player.car) {
+    state.player.car.speed = 0;
+    state.player.car.targetSpeed = 0;
+  }
+  state.player.speed = 0;
+  // A police car stopped just ahead, as the arresting unit.
+  const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
+  if (cops.length > 0) {
+    const lead = cops[0];
+    lead.x = state.player.x + 70;
+    lead.y = state.player.y + 6;
+    lead.angle = Math.PI;
+    lead.speed = 0;
+    lead.targetSpeed = 0;
+  }
+  hideBanner(state);
+  state.talk = null;
+  endRun(state, 'busted');
+}
+
+export function stageShot(state, name) {
+  if (name === 'start') {
+    state.mode = 'title';
+    state.money = PLAYER.startMoney;
+    state.health = PLAYER.health;
     state.banner = null;
-    return { screen: SCREEN_PLAY, best: state.money };
+    state.talk = null;
+    putOnBeach(state, 600);
+    if (state.player.car) {
+      state.player.car.speed = 0;
+      state.player.car.targetSpeed = 0;
+    }
+    state.player.speed = 0;
+    return;
+  }
+  if (name === 'play') {
+    stagePlay(state);
+    return;
+  }
+  if (name === 'chase') {
+    stageChase(state);
+    return;
   }
   if (name === 'end') {
-    stealNearestCar(game, 14);
-    addWanted(state, 3, state.player.x, state.player.y);
-    runSteps(game, 40, () => {
-      const p = game.state.player;
-      if (!p.car) return idleInput();
-      let cop = null, best = Infinity;
-      for (const c of state.cars) {
-        if (c.kind !== 'police') continue;
-        const d = Math.hypot(c.x - p.car.x, c.y - p.car.y);
-        if (d < best) { best = d; cop = c; }
-      }
-      return cop ? driveToward(game, cop.x, cop.y) : idleInput();
-    }, false);
-    if (state.wasted) return { screen: SCREEN_OVER, best: state.money };
-    if (state.player.car) {
-      exitCar(state);
-      const cop = state.cars.find((c) => c.kind === 'police');
-      if (cop) {
-        state.player.x = cop.x + 34;
-        state.player.y = cop.y;
-        runSteps(game, 12, () => {
-          cop.speed = 0;
-          return idleInput();
-        }, false);
-      }
-      if (state.busted) {
-        const cam = state.camera;
-        const fx = Math.cos(cam.angle), fy = Math.sin(cam.angle);
-        const px = -fy, py = fx;
-        const depthOf = (cx, cy) => (cop.x - cx) * fx + (cop.y - cy) * fy;
-        const clearToCop = (cx, cy) => {
-          const dx = cop.x - cx, dy = cop.y - cy, d = Math.hypot(dx, dy);
-          const steps = Math.ceil(d / 8);
-          for (let i = 1; i < steps; i += 1) {
-            if (hitsBuilding(state.city, cx + (dx * i) / steps, cy + (dy * i) / steps, 10)) return false;
-          }
-          return true;
-        };
-        const need = Math.max(0, 170 - depthOf(cam.x, cam.y));
-        let placed = false;
-        for (let back = need; back <= need + 72 && !placed; back += 12) {
-          for (const lat of [0, -48, 48, -96, 96]) {
-            const nx = cam.x - fx * back + px * lat;
-            const ny = cam.y - fy * back + py * lat;
-            if (nx < 40 || nx > CITY.width - 40 || ny < 40 || ny > CITY.height - 40) continue;
-            if (hitsBuilding(state.city, nx, ny, 14)) continue;
-            if (!clearToCop(nx, ny)) continue;
-            if (depthOf(nx, ny) < 150) continue;
-            cam.x = nx;
-            cam.y = ny;
-            placed = true;
-            break;
-          }
-        }
-        clearShot(game);
-        state.banner = null;
-        return { screen: SCREEN_BUSTED, best: state.money };
-      }
-    }
-    return { screen: state.wasted ? SCREEN_OVER : SCREEN_PLAY, best: state.money };
+    stageEnd(state);
+    return;
   }
-  state.camera.x = 1600;
-  state.camera.y = 1120;
-  runSteps(game, START_SECONDS, () => idleInput(), true);
-  return { screen: SCREEN_TITLE, best: 0 };
+  state.mode = 'title';
+}
+
+export function shotList() {
+  return ['start', 'play', 'chase', 'end'];
 }

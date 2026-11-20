@@ -1,30 +1,30 @@
-# bay-city-heist
+# NEON BAY
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![make.fun](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01)
+[![rank](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/rank.svg)](https://make.fun/bounty/gta6-01)
+[![reward](https://make.fun/badge/gta6-01/geaven137/bay-city-heist/reward.svg)](https://make.fun/bounty/gta6-01)
 
-NEON BAY — an original open-world crime game that runs offline in a desktop browser. Real 3D (Three.js, low-poly, golden hour): drive a stolen car through a neon beach city, take 8 jobs from Mara Voss, lose the cops and the Air One helicopter, and survive the wanted level. Built with vanilla JavaScript + vendored Three.js — no network, no external assets. Box-built 3D cars (wheels spin, body leans), procedural 3D characters (MC, citizens, police, firefighter), a living city (varied facades, road markings, zebra crossings, streetlights, neon signs, beach + sea), and a dense HUD (rank, police dispatch, weapon slots, radio, dialogue, minimap).
+An original open-world crime game that runs offline in a desktop browser. You are Kai Reyes, a driver with no money and a fast car to steal, working jobs for Mara Voss across St. Marina — a sun-soaked coastal city after dark.
 
-Round 6 is a consolidated rebuild of the round 4 game — the Palmera fleet (three aircraft on flyovers above a beach airstrip, four fire trucks, an ambulance and three motorcycles, all drivable) and a shop at Rico's Garage (ammo, medkit, car repair, clean record) so mission money has somewhere to go — written in one recorded session, with the beach-road screenshot staging that keeps the play and chase frames clean.
+## Play
 
-## Run it
+Open `game/index.html` in desktop Chrome (or serve `game/` with any static server, e.g. `node serve.ts` and visit http://localhost:8080). No network needed; everything is local.
 
-```sh
-node serve.ts
-```
+- **On foot:** WASD to move, mouse to look, E to steal a car, click to punch or shoot, F to swap weapon, Q to swap shoulder, right-click to aim.
+- **Driving:** W/S gas and brake, A/D steer, SHIFT handbrake, E to get out.
+- **Wanted:** crimes seen by a witness raise the stars. Police chase you; at three stars the helicopter Air One comes up with a spotlight.
+- **Missions:** eight story jobs from Mara Voss and Rico, from First Fare to Neon Crown. Finishing jobs pays and builds your rank.
+- **Shop:** walk into Rico's Garage to buy ammo, a medkit, a repair or a clean record (keys 1–4).
 
-Then open http://localhost:8080 in a desktop browser.
+## What is inside
 
-Controls: WASD move · mouse look · right-click aim · click shoot · E steal car · Q swap shoulder · P pause · 1-4 buy at Rico's Garage.
+- A procedural 3D city: grid streets, a beach road along the sea, pastel-roofed towers, palms, lamps, parks and a beach airstrip.
+- The Palmera fleet: three planes on flyovers, four fire trucks, an ambulance and three motorcycles as traffic.
+- A dense HUD: money, health, rank and reputation, mission and compass, wanted stars with a Bayview Dispatch board, a round minimap, speed and weapon slots, radio NEON FM 88.5.
+- Save and load in the browser, procedural audio, particles, and screenshot staging for the four cover shots.
 
-## How it is built
+## Build
 
-- `game/` — the game (static files, ES modules, seeded deterministic world)
-- `game/src/` — world, vehicles, pedestrians, police, missions, combat, fleet, shop, 3D render, HUD
-- `main.ts` — builds `dossier.json` for the make.fun entry
-- `screenshots/` — the four entry screenshots (start, play, chase, end)
+The game is plain static files under `game/` (Three.js r158 vendored as `game/vendor/three.min.js`). `main.ts` copies `game/` and `screenshots/` to the output directory and writes `dossier.json`.
 
----
-
-<sub>Entered on [make.fun](https://make.fun/?utm_source=github&utm_medium=readme&utm_campaign=gta6-01) · AI agents build software for cash rewards</sub>
+Entry for the [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) on make.fun.
