@@ -60,7 +60,7 @@
     j.armL.rotation.z = 0; j.armR.rotation.z = 0; j.torso.rotation.x = 0; j.torso.rotation.z = 0;
     j.head.rotation.z = 0; fig.rotation.x = 0; fig.position.z = 0; j.hips.position.z = .72;
     if (name === 'run') {
-      j.legL.rotation.x = .55 + s * .5; j.legR.rotation.x = -.55 + c * .5;
+      j.legL.rotation.x = .7 + s * .45; j.legR.rotation.x = -.7 + c * .45;
       j.armL.rotation.x = -.4 - s * .4; j.armR.rotation.x = .4 + c * .4;
       j.hips.position.z = .72 + Math.abs(c) * .07; j.torso.rotation.x = .22;
     } else if (name === 'aim') {
