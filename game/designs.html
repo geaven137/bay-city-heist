@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NEON BAY — Design Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #2a1a12; }
+  #c { position: fixed; inset: 0; }
+  #cap { position: fixed; left: 14px; bottom: 12px; color: #fff; font: 600 15px/1.4 system-ui, sans-serif;
+    text-shadow: 0 1px 4px rgba(0,0,0,.7); letter-spacing: .08em; text-transform: uppercase; }
+  #sub { position: fixed; left: 14px; bottom: 34px; color: #ffd9a0; font: 500 12px/1.4 system-ui, sans-serif;
+    text-shadow: 0 1px 3px rgba(0,0,0,.7); letter-spacing: .12em; }
+</style>
+</head>
+<body>
+<div id="c"></div>
+<div id="sub">NEON BAY — ST. MARINA</div>
+<div id="cap"></div>
+<script src="vendor/three.min.js"></script>
+<script src="src/designs.js"></script>
+<script src="src/designs-vehicles.js"></script>
+<script src="src/designs-characters.js"></script>
+<script src="src/designs-buildings.js"></script>
+<script src="src/designs-weapons.js"></script>
+<script src="src/designs-integrate.js"></script>
+<script>
+// NEON BAY design viewer (Round 9, fresh). ?design=<id> | lineup | class-<cls>
+// Optional ?pose=idle|aim|run|flee|downed for figures. Z-up, golden hour.
+(function () {
+  var N = window.NEON_DESIGNS;
+  var q = new URLSearchParams(location.search);
+  var want = (q.get('design') || 'lineup').toLowerCase();
+  var poseName = (q.get('pose') || '').toLowerCase();
+  var renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  renderer.shadowMap.enabled = true;
+  document.getElementById('c').appendChild(renderer.domElement);
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xff9a5c);
+  scene.fog = new THREE.Fog(0xff9a5c, 70, 160);
+  var camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, .1, 400);
+  camera.up.set(0, 0, 1);
+  scene.add(new THREE.HemisphereLight(0xffd9a0, 0x6a5148, 1.05));
+  var sun = new THREE.DirectionalLight(0xffc98a, 1.5);
+  sun.position.set(-22, 16, 26); sun.castShadow = true; scene.add(sun);
+  var rim = new THREE.DirectionalLight(0x8aa0c8, .55);
+  rim.position.set(18, -22, 12); scene.add(rim);
+  var ground = new THREE.Mesh(new THREE.CircleGeometry(90, 40),
+    new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 1, flatShading: true }));
+  ground.position.z = 0; scene.add(ground);
+  var sunDisc = new THREE.Mesh(new THREE.CircleGeometry(7, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffe9a8, fog: false }));
+  sunDisc.position.set(-55, 35, 12); sunDisc.lookAt(camera.position); scene.add(sunDisc);
+  var cap = document.getElementById('cap');
+  var figures = [];
+  function frame(size, cx, cy, cz) {
+    camera.position.set(cx + size * 1.05, cy - size * 1.55, cz + size * .8);
+    camera.lookAt(cx, cy, cz);
+  }
+  function showOne(id) {
+    var g = N.spawn(id);
+    if (!g) { cap.textContent = 'UNKNOWN DESIGN: ' + id; return; }
+    scene.add(g);
+    var s = g.userData.designSize || 3;
+    if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) figures.push(g);
+    frame(s, 0, 0, s * .35);
+    cap.textContent = g.userData.designName + ' — ' + N.describe(id);
+  }
+  function showLineup() {
+    var ids = N.allIds(), cols = 10, gap = 4.5, k;
+    for (var i = 0; i < ids.length; i++) {
+      var g = N.spawn(ids[i]);
+      if (!g) continue;
+      var cx = (i % cols - (cols - 1) / 2) * gap, cy = (Math.floor(i / cols) - 4.5) * gap;
+      g.position.set(cx, cy, 0);
+      var kind = N.kindOf(ids[i]);
+      if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = 'idle'; }
+      if (kind === 'weapon') g.position.z = .8;
+      scene.add(g);
+    }
+    camera.position.set(0, -46, 40);
+    camera.lookAt(0, 0, 0);
+    cap.textContent = 'ALL 98 DESIGNS — NEON BAY';
+  }
+  function showClass(cls) {
+    var ids = N.allIds().filter(function (id) {
+      var e = N.get(id);
+      return e && (e.kind === cls || e.cls === cls);
+    });
+    if (!ids.length) { cap.textContent = 'UNKNOWN CLASS: ' + cls; return; }
+    for (var i = 0; i < ids.length; i++) {
+      var g = N.spawn(ids[i]);
+      if (!g) continue;
+      g.position.set((i - (ids.length - 1) / 2) * 5.5, 0, 0);
+      var kind = N.kindOf(ids[i]);
+      if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = poseName || 'idle'; }
+      if (kind === 'weapon') g.position.z = .8;
+      scene.add(g);
+    }
+    frame(Math.max(6, ids.length * 2.2), 0, 0, 1);
+    cap.textContent = 'CLASS ' + cls.toUpperCase() + ' — ' + ids.length + ' DESIGNS';
+  }
+  // Per-figure pose from ?pose= (single view).
+  if (poseName && (want !== 'lineup') && want.indexOf('class-') !== 0) {
+    for (var p = 0; p < figures.length; p++) figures[p].userData.poseName = poseName;
+  }
+  if (want === 'lineup') showLineup();
+  else if (want.indexOf('class-') === 0) showClass(want.slice(6));
+  else showOne(want);
+  var t0 = performance.now(), first = true;
+  function loop() {
+    requestAnimationFrame(loop);
+    var t = (performance.now() - t0) / 1000;
+    N.drive(t);
+    for (var i = 0; i < figures.length; i++)
+      N.poseFigure(figures[i], figures[i].userData.poseName || 'idle', t);
+    renderer.render(scene, camera);
+    if (first) { first = false; document.body.setAttribute('data-ready', '1'); }
+  }
+  loop();
+})();
+</script>
+</body>
+</html>
