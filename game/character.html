@@ -59,9 +59,17 @@ camera.up.set(0, 0, 1);
 camera.position.set(-2.6, -3.6, 2.1);
 camera.lookAt(0, 0.6, 1.05);
 
-// Lights: warm low sun + soft purple ambient.
-var hemi = new THREE.HemisphereLight(0xffd9b0, 0x4a2a4a, 0.55);
+// Lights: warm low sun + soft purple ambient, plus a warm fill from the
+// camera side so the side of the character the camera sees is lit, not
+// a silhouette. The sun stays in front for the golden rim and sunset.
+var hemi = new THREE.HemisphereLight(0xffd9b0, 0x4a2a4a, 1.05);
 scene.add(hemi);
+
+// Warm fill from behind-left, above the camera: lights Kai's back, the
+// rifle's top edge, and the camera-facing sides of the buildings.
+var fill = new THREE.DirectionalLight(0xffc98a, 1.25);
+fill.position.set(-8, -10, 6);
+scene.add(fill);
 
 var sun = new THREE.DirectionalLight(0xffb36b, 1.6);
 sun.position.set(2, 18, 8);
@@ -96,7 +104,7 @@ scene.add(sunGlow);
 // in a Z-up world.
 var ground = new THREE.Mesh(
   new THREE.PlaneGeometry(60, 60),
-  new THREE.MeshStandardMaterial({ color: 0x54423e, roughness: 0.95, metalness: 0 })
+  new THREE.MeshStandardMaterial({ color: 0x6a5148, roughness: 0.95, metalness: 0 })
 );
 ground.receiveShadow = true;
 scene.add(ground);
@@ -166,10 +174,16 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 var clock = new THREE.Clock();
+// The framing is pinned every frame: the camera never drifts, pans, or
+// zooms during the capture, so the shot stays exactly as composed.
+var CAM_POS = [-2.6, -3.6, 2.1];
+var CAM_LOOK = [0, 0.6, 1.05];
 function frame() {
   requestAnimationFrame(frame);
   var t = clock.getElapsedTime();
   updateKaiAnimation(rig, t, 0, true);
+  camera.position.set(CAM_POS[0], CAM_POS[1], CAM_POS[2]);
+  camera.lookAt(CAM_LOOK[0], CAM_LOOK[1], CAM_LOOK[2]);
   renderer.render(scene, camera);
 }
 frame();

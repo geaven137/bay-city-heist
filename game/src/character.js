@@ -35,9 +35,9 @@ function createKaiCharacter(options) {
     vest: options.vestColor !== undefined ? options.vestColor : 0x2f3e2e,
     shirt: options.shirtColor !== undefined ? options.shirtColor : 0x3b4d61,
     pants: options.pantsColor !== undefined ? options.pantsColor : 0x262b33,
-    boots: options.bootsColor !== undefined ? options.bootsColor : 0x18191c,
+    boots: options.bootsColor !== undefined ? options.bootsColor : 0x262a31,
     helmet: options.helmetColor !== undefined ? options.helmetColor : 0x3a4a37,
-    gun: options.gunColor !== undefined ? options.gunColor : 0x232830,
+    gun: options.gunColor !== undefined ? options.gunColor : 0x3d4454,
   };
 
   var root = new THREE.Group();
