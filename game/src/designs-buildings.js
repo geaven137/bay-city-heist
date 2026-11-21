@@ -23,21 +23,32 @@
     roofProps(g, o.w, o.d, o.h);
     return g;
   }
+  function roofProp(g, kind, o) {
+    var z = o.h + .4;
+    if (kind === 'burger') H.put(g, H.cyl(.7, .7, .22, 0xd8a060, 0, 0, z + .1, 'z', 10), H.cyl(.75, .75, .14, 0x6a4a28, 0, 0, z - .05, 'z', 10), H.cyl(.7, .7, .12, 0xd8a060, 0, 0, z - .18, 'z', 10));
+    else if (kind === 'cup') H.put(g, H.cyl(.45, .35, .7, 0xfff2f2, 0, 0, z + .15, 'z', 10), H.box(.14, .3, .4, 0xfff2f2, .5, 0, z + .15));
+    else if (kind === 'donut') H.put(g, H.cyl(.7, .7, .25, 0xd87a9a, 0, 0, z, 'z', 12), H.cyl(.45, .45, .28, 0xfff2f2, 0, 0, z, 'z', 12));
+    else if (kind === 'cone') H.put(g, H.cyl(.05, .4, .9, 0xd8a060, 0, 0, z + .3, 'z', 8), H.sph(.45, 0xfff2f2, 0, 0, z + .95, 1, 1, 1));
+    else if (kind === 'bowl') H.put(g, H.cyl(.55, .4, .35, 0xfff2f2, 0, 0, z, 'z', 10), H.cyl(.4, .4, .1, 0xe8c040, 0, 0, z + .2, 'z', 10));
+    else if (kind === 'pizza') H.put(g, H.cyl(.8, .8, .12, 0xe8c040, 0, 0, z, 'z', 12), H.box(.2, .2, .06, 0xc02020, .3, 0, z + .1), H.box(.2, .2, .06, 0x2a7a4a, -.3, .2, z + .1));
+    else if (kind === 'taco') H.put(g, H.box(1.2, .5, .7, 0xe8a020, 0, 0, z + .15), H.box(1.0, .3, .3, 0x7a9a3a, 0, 0, z + .4));
+  }
   function shop(o) {
     var g = H.grp();
     H.put(g, H.box(o.w, o.d, o.h, o.c, 0, 0, o.h / 2),
-      H.box(o.w * .95, .7, .08, o.aw, 0, o.d / 2 + .3, 2.7),
       sbox(o.w * .7, .08, .5, o.sign, o.sign, 0, o.d / 2 + .02, o.h - .5),
       H.box(o.w * .8, .06, 1.9, GLASS, 0, o.d / 2, 1.15),
       H.box(.9, .06, 2.1, 0x4a3a28, -o.w / 2 + .7, o.d / 2, 1.25));
+    for (var s = 0; s < 5; s++) H.put(g, H.box(o.w * .19, .7, .08, s % 2 ? 0xfff2f2 : o.aw, -o.w * .38 + s * o.w * .19, o.d / 2 + .3, 2.7));
+    if (o.prop) roofProp(g, o.prop, o);
     roofProps(g, o.w, o.d, o.h);
     return g;
   }
   function house(o) {
     var g = H.grp();
     H.put(g, H.box(o.w, o.d, o.h, o.c, 0, 0, o.h / 2));
-    var r1 = H.box(o.w + .4, o.d / 2 + .3, .1, o.roof, 0, o.d / 4, o.h + .7); r1.rotation.x = .45;
-    var r2 = H.box(o.w + .4, o.d / 2 + .3, .1, o.roof, 0, -o.d / 4, o.h + .7); r2.rotation.x = -.45;
+    var r1 = H.box(o.w + .4, o.d / 2 + .3, .1, o.roof, 0, o.d / 4, o.h + .7); r1.rotation.x = -.45;
+    var r2 = H.box(o.w + .4, o.d / 2 + .3, .1, o.roof, 0, -o.d / 4, o.h + .7); r2.rotation.x = .45;
     H.put(g, r1, r2, H.box(1.0, .08, 2.0, 0x4a3a28, 0, o.d / 2, 1.1));
     windows(g, o.w, o.h, 1, 3, o.d / 2, .8);
     return g;
@@ -107,14 +118,14 @@
     ['tower-beacon', 'Beacon Tower', 'tower', 18, function () { return B.tower({ w: 7, d: 7, h: 16, c: 0xc8a060, fl: 8, co: 4 }); }],
     ['tower-market', 'Marina Market House', 'tower', 14, function () { return B.tower({ w: 9, d: 8, h: 12, c: 0x8a5a40, fl: 5, co: 5 }); }],
     ['tower-terrace', 'Terrace Residences', 'tower', 15, function () { var g = B.tower({ w: 10, d: 7, h: 13, c: 0xb8a890, fl: 6, co: 5 }); for (var f = 0; f < 5; f++) H.put(g, H.box(9, .8, .12, 0x8a7a68, 0, 3.9, 2.5 + f * 2.2)); return g; }],
-    ['shop-burgers', 'Bay Shack Burgers', 'shop', 8, function () { return B.shop({ w: 7, d: 6, h: 4.2, c: 0xc87040, aw: 0xe84040, sign: 0xffc020 }); }],
-    ['shop-pizza', 'Marina Pizza', 'shop', 8, function () { return B.shop({ w: 7, d: 6, h: 4.2, c: 0xd8c8a8, aw: 0x2a7a4a, sign: 0xff5030 }); }],
+    ['shop-burgers', 'Bay Shack Burgers', 'shop', 8, function () { return B.shop({ w: 7, d: 6, h: 4.2, c: 0xc87040, aw: 0xe84040, sign: 0xffc020, prop: 'burger' }); }],
+    ['shop-pizza', 'Marina Pizza', 'shop', 8, function () { return B.shop({ w: 7, d: 6, h: 4.2, c: 0xd8c8a8, aw: 0x2a7a4a, sign: 0xff5030, prop: 'pizza' }); }],
     ['shop-sushi', 'Bay Sushi', 'shop', 8, function () { return B.shop({ w: 6, d: 6, h: 4.0, c: 0x3a4a5a, aw: 0x20242c, sign: 0x40c0d8 }); }],
-    ['shop-noodles', 'Golden Bay Noodles', 'shop', 8, function () { return B.shop({ w: 6, d: 6, h: 4.0, c: 0xc02020, aw: 0xf2c018, sign: 0xffe020 }); }],
-    ['shop-coffee', 'Beacon Roast Coffee', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0x6a4a28, aw: 0x2a2d34, sign: 0xc8a060 }); }],
-    ['shop-donuts', 'Ring Donuts', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0xd87a9a, aw: 0xfff2f2, sign: 0xff80a0 }); }],
-    ['shop-gelato', 'Beach Gelato', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0x7ac8a8, aw: 0xfff2c0, sign: 0x40e0a0 }); }],
-    ['shop-tacos', 'Sol Tacos', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0xe8a020, aw: 0xc02020, sign: 0xffd020 }); }],
+    ['shop-noodles', 'Golden Bay Noodles', 'shop', 8, function () { return B.shop({ w: 6, d: 6, h: 4.0, c: 0xc02020, aw: 0xf2c018, sign: 0xffe020, prop: 'bowl' }); }],
+    ['shop-coffee', 'Beacon Roast Coffee', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0x6a4a28, aw: 0x2a2d34, sign: 0xc8a060, prop: 'cup' }); }],
+    ['shop-donuts', 'Ring Donuts', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0xd87a9a, aw: 0xfff2f2, sign: 0xff80a0, prop: 'donut' }); }],
+    ['shop-gelato', 'Beach Gelato', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0x7ac8a8, aw: 0xfff2c0, sign: 0x40e0a0, prop: 'cone' }); }],
+    ['shop-tacos', 'Sol Tacos', 'shop', 8, function () { return B.shop({ w: 6, d: 5, h: 3.8, c: 0xe8a020, aw: 0xc02020, sign: 0xffd020, prop: 'taco' }); }],
     ['auto-gallery', 'St. Marina Auto Gallery', 'civic', 14, function () { return B.civic({ w: 12, d: 9, h: 6, c: 0x9aa2a8, fl: 2, co: 6 }); }],
     ['ricos-garage', "Rico's Garage", 'civic', 12, function () { var g = B.civic({ w: 10, d: 8, h: 5, c: 0x7a6a58, fl: 1, co: 4, open: true }); H.put(g, H.cyl(.4, .4, .3, 0x0c0d0f, 3, 4.5, .2, 'z', 10), H.cyl(.4, .4, .3, 0x0c0d0f, 3.8, 4.5, .2, 'z', 10)); return g; }],
     ['armoury', 'Marina Armoury', 'civic', 12, function () { return B.civic({ w: 9, d: 7, h: 5, c: 0x4a4e54, fl: 2, co: 4 }); }],
