@@ -42,9 +42,9 @@
   camera.up.set(0, 0, 1);
   scene.add(new THREE.HemisphereLight(0xffd9a0, 0x6a5148, 1.05));
   var sun = new THREE.DirectionalLight(0xffc98a, 1.5);
-  sun.position.set(-22, 16, 26); sun.castShadow = true; scene.add(sun);
+  sun.position.set(18, -20, 25); sun.castShadow = true; scene.add(sun);
   var rim = new THREE.DirectionalLight(0x8aa0c8, .55);
-  rim.position.set(18, -22, 12); scene.add(rim);
+  rim.position.set(-15, 20, 12); scene.add(rim);
   var ground = new THREE.Mesh(new THREE.CircleGeometry(90, 40),
     new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 1, flatShading: true }));
   ground.position.z = 0; scene.add(ground);
@@ -61,6 +61,7 @@
     var g = N.spawn(id);
     if (!g) { cap.textContent = 'UNKNOWN DESIGN: ' + id; return; }
     scene.add(g);
+    g.rotation.z = Math.PI; // face the camera (front = -Y)
     var s = g.userData.designSize || 3;
     if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) figures.push(g);
     frame(s, 0, 0, s * .35);
@@ -73,6 +74,7 @@
       if (!g) continue;
       var cx = (i % cols - (cols - 1) / 2) * gap, cy = (Math.floor(i / cols) - 4.5) * gap;
       g.position.set(cx, cy, 0);
+      g.rotation.z = Math.PI;
       var kind = N.kindOf(ids[i]);
       if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = 'idle'; }
       if (kind === 'weapon') g.position.z = .8;
@@ -92,6 +94,7 @@
       var g = N.spawn(ids[i]);
       if (!g) continue;
       g.position.set((i - (ids.length - 1) / 2) * 5.5, 0, 0);
+      g.rotation.z = Math.PI;
       var kind = N.kindOf(ids[i]);
       if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = poseName || 'idle'; }
       if (kind === 'weapon') g.position.z = .8;
@@ -114,6 +117,7 @@
     N.drive(t);
     for (var i = 0; i < figures.length; i++)
       N.poseFigure(figures[i], figures[i].userData.poseName || 'idle', t);
+    sunDisc.lookAt(camera.position);
     renderer.render(scene, camera);
     if (first) { first = false; document.body.setAttribute('data-ready', '1'); }
   }
