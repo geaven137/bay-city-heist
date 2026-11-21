@@ -152,3 +152,5 @@ export function syncCarMesh(car) {
     car.strobeBlue.material.emissiveIntensity = on ? 0.2 : 1.8;
   }
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('vehicles.js'); }

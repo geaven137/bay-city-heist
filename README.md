@@ -28,3 +28,6 @@ Open `game/index.html` in desktop Chrome (or serve `game/` with any static serve
 The game is plain static files under `game/` (Three.js r158 vendored as `game/vendor/three.min.js`). `main.ts` copies `game/` and `screenshots/` to the output directory and writes `dossier.json`.
 
 Entry for the [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) on make.fun.
+
+## Round 9 — NEON BAY design pack
+98 designs (20 vehicles, 10 characters, 7 NPCs, 34 buildings, 27 weapons) in `game/src/designs*.js`; view each at `game/designs.html?design=<id>`.

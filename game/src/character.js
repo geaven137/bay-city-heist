@@ -199,3 +199,5 @@ function updateKaiAnimation(rig, elapsed, speed, aiming) {
   rig.torsoPivot.position.z = 0.10 + Math.sin(elapsed * 1.6) * 0.006 * still;
   rig.headPivot.rotation.z = Math.sin(elapsed * 0.9) * 0.03 * still;
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('character.js'); }

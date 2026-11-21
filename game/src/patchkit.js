@@ -97,3 +97,5 @@ export function perfTick(state, dt) {
     state.pedCap = 24;
   }
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('patchkit.js'); }

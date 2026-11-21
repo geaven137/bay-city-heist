@@ -47,3 +47,5 @@ export function stepParticles(state, dt) {
 export function clearParticles(state) {
   state.particles.length = 0;
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('particles.js'); }

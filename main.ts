@@ -96,3 +96,5 @@ main().catch((err: unknown) => {
   console.error(`main.ts failed: ${message}`);
   process.exit(1);
 });
+// Round 9: NEON BAY design pack — 98 designs in game/src/designs*.js + game/designs.html.
+// Round 9: viewer at game/designs.html — ?design=<id> for all 98 designs.

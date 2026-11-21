@@ -103,3 +103,5 @@ export function missionMarker(state) {
   if (!state.missionTarget) return null;
   return state.missionTarget;
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('missions.js'); }

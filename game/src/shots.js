@@ -237,3 +237,5 @@ export function stageShot(state, name) {
 export function shotList() {
   return ['start', 'play', 'chase', 'end'];
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('shots.js'); }

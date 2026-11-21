@@ -117,3 +117,5 @@ export function playChime(audio) {
   blip(audio, 660, 0.16, 'sine', 0.25);
   setTimeout(() => blip(audio, 880, 0.22, 'sine', 0.25), 130);
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('audio.js'); }

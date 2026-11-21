@@ -52,3 +52,5 @@ export function buyItem(state, slot) {
 export function shopList() {
   return SHOP_ITEMS;
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('shop.js'); }

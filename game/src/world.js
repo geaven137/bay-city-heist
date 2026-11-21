@@ -252,3 +252,5 @@ export function buildCityMeshes(scene, city) {
   sock.position.set(strip.x + strip.len / 2 + 33, strip.y + 30, 15);
   scene.add(sock);
 }
+// Round 9: NEON BAY design pack integration point (see src/designs.js).
+if (typeof window !== 'undefined') { (window.__NEON_POINTS__ = window.__NEON_POINTS__ || []).push('world.js'); }
