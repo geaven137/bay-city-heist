@@ -78,8 +78,8 @@ function lineUpCops(state) {
   // pursuit pulls them back toward the player, they are still
   // in the chase camera's frame at screenshot time.
   const spots = [
-    [250, 32],
-    [320, -34],
+    [200, 30],
+    [230, -32],
     [-80, 26],
     [-140, -28],
   ];
@@ -146,11 +146,7 @@ function stagePlay(state) {
   state.missionTimer = 97;
   hideBanner(state);
   sweepLane(state);
-  state.talk = {
-    name: 'Mara Voss',
-    text: 'Kai. A singer needs a ride to the marina stage. Don\u2019t scratch the paint — it isn\u2019t yours.',
-    timer: 30,
-  };
+  state.talk = null;
 }
 
 function stageChase(state) {
@@ -170,11 +166,7 @@ function stageChase(state) {
   lineUpCops(state);
   sweepLane(state);
   hideBanner(state);
-  state.talk = {
-    name: 'Mara Voss',
-    text: 'Make some noise at the bank, then vanish. I want zero stars on you.',
-    timer: 30,
-  };
+  state.talk = null;
 }
 
 function stageEnd(state) {

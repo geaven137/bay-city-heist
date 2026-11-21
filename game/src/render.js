@@ -51,8 +51,10 @@ export function createStage(canvas) {
     new T.MeshBasicMaterial({ map: skyTex, side: T.BackSide, fog: false })
   );
   scene.add(sky);
+  const sunDisc = new T.Mesh(new T.SphereGeometry(55, 16, 12), new T.MeshBasicMaterial({ color: 0xffd27a, fog: false }));
+  scene.add(sunDisc);
   return {
-    renderer, scene, camera, sun,
+    renderer, scene, camera, sun, sunDisc,
     carMeshes: new Map(),
     pedMeshes: new Map(),
     planeMeshes: new Map(),
@@ -143,12 +145,30 @@ export function buildSceneMeshes(stage, state) {
     stage.scene.add(rig);
     stage.planeMeshes.set(pl, rig);
   }
-  const hm = heliMesh();
+  var HN = globalThis.NEON_DESIGNS;
+  var hm = (HN && HN.spawn) ? HN.spawn('air-one') : heliMesh();
+  if (hm && HN && HN.spawn) {
+    hm.scale.setScalar(1.8);
+    var TH = globalThis.THREE;
+    var cone = new TH.Mesh(new TH.ConeGeometry(9, 26, 16, 1, true), new TH.MeshBasicMaterial({ color: 0xfff6c9, transparent: true, opacity: 0.14, side: TH.DoubleSide, depthWrite: false }));
+    cone.rotation.x = -Math.PI / 2;
+    cone.position.set(0, 0.5, -13);
+    hm.add(cone);
+  }
   stage.scene.add(hm);
   stage.heliMesh = hm;
   stage.heliRotor = hm.userData.rotor;
   // Particles as one Points cloud.
   const T = globalThis.THREE;
+  var BN = globalThis.NEON_DESIGNS;
+  if (BN && BN.integrate) {
+    var bids = ['tower-glass', 'shop-burgers', 'tower-market', 'shop-pizza', 'tower-beacon', 'shop-coffee', 'house-villa', 'shop-noodles'];
+    for (var i = 0; i < 13; i++) BN.integrate(stage.scene, bids[i % 8], 560 + i * 130, 2000, 0, (i % 2 ? 0.15 : -0.12));
+    if (!stage.kaiMesh) stage.kaiMesh = BN.integrate(stage.scene, 'kai', 610, 2064, 0, 1.0);
+  }
+  var strip = new T.Mesh(new T.PlaneGeometry(1800, 150), new T.MeshStandardMaterial({ color: PALETTE.ground, roughness: 1 }));
+  strip.position.set(1250, 1995, -0.4);
+  stage.scene.add(strip);
   const geo = new T.BufferGeometry();
   geo.setAttribute('position', new T.Float32BufferAttribute(new Float32Array(420 * 3), 3));
   geo.setAttribute('color', new T.Float32BufferAttribute(new Float32Array(420 * 3), 3));
@@ -162,6 +182,13 @@ export function buildSceneMeshes(stage, state) {
 
 function ensureCarMesh(stage, car) {
   if (car.mesh) return car.mesh;
+  var N = globalThis.NEON_DESIGNS, did = null;
+  if (N && N.spawn) {
+    if (car.kind === 'player') did = 'coupe';
+    else if (car.kind === 'police') did = 'patrol-car';
+    else if (car.kind === 'civil') did = ['civil-sedan', 'hatchback', 'pickup', 'suv'][car.serial % 4];
+    if (did) { var dm = N.spawn(did); if (dm) { car.mesh = dm; stage.scene.add(dm); stage.carMeshes.set(car, dm); return dm; } }
+  }
   let mesh;
   if (car.kind === 'pumper' || car.kind === 'ladder' || car.kind === 'rescue' || car.kind === 'arff' || car.kind === 'ambulance' || car.kind === 'sport' || car.kind === 'cruiser' || car.kind === 'enduro') {
     mesh = craftRig(car.kind);
@@ -215,10 +242,14 @@ function updateCamera(stage, state) {
   stage.sun.position.set(p.x - 500, p.y + 420, 900);
   stage.sun.target.position.set(p.x, p.y, 0);
   stage.sun.target.updateMatrixWorld();
+  if (stage.sunDisc) stage.sunDisc.position.set(p.x + 900, p.y + 750, 55);
 }
 
 export function drawFrame(stage, state, dt) {
   const T = globalThis.THREE;
+  var DN = globalThis.NEON_DESIGNS;
+  if (DN && DN.drive) DN.drive(state.time);
+  if (stage.kaiMesh) stage.kaiMesh.visible = state.mode === 'title';
   for (const car of state.cars) {
     const mesh = ensureCarMesh(stage, car);
     if (car.rig) {

@@ -45,7 +45,7 @@ export function generateCity(rng) {
   const palms = [];
   for (let i = 0; i < WORLD.palmCount; i++) {
     if (rng.chance(0.45)) {
-      palms.push({ x: rng.range(520, 2050), y: rng.range(1980, 2160), s: rng.range(0.8, 1.3) });
+      palms.push({ x: rng.range(520, 2050), y: rng.chance(0.5) ? rng.range(1920, 1985) : rng.range(2120, 2160), s: rng.range(0.8, 1.3) });
     } else {
       const park = parks[i % parks.length];
       const a = rng.next() * Math.PI * 2;
