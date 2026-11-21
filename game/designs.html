@@ -57,6 +57,11 @@
     camera.position.set(cx + size * 1.05, cy - size * 1.55, cz + size * .8);
     camera.lookAt(cx, cy, cz);
   }
+  function measure(g) {
+    var b = new THREE.Box3().setFromObject(g), s = new THREE.Vector3(), c = new THREE.Vector3();
+    b.getSize(s); b.getCenter(c);
+    return { d: Math.max(s.x, s.y, s.z), x: c.x, y: c.y, z: c.z };
+  }
   function showOne(id) {
     var g = N.spawn(id);
     if (!g) { cap.textContent = 'UNKNOWN DESIGN: ' + id; return; }
@@ -64,9 +69,9 @@
     var bg = ['tower-glass', 'shop-burgers', 'tower-market', 'shop-coffee'];
     for (var b = 0; b < 4; b++) { var bb = N.spawn(bg[b]); if (bb) { bb.position.set((b - 1.5) * 18, 40, 0); bb.rotation.z = (b % 2 ? .12 : -.1); scene.add(bb); } }
     g.rotation.z = Math.PI; // face the camera (front = -Y)
-    var s = g.userData.designSize || 3;
+    var m = measure(g);
     if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) { figures.push(g); g.userData.poseName = poseName || N.get(id).pose || 'idle'; }
-    frame(s, 0, 0, s * .35);
+    frame(m.d, m.x, m.y, m.z);
     cap.textContent = N.describe(id);
   }
   function showLineup() {
@@ -92,17 +97,29 @@
       return e && (e.kind === cls || e.cls === cls);
     });
     if (!ids.length) { cap.textContent = 'UNKNOWN CLASS: ' + cls; return; }
-    for (var i = 0; i < ids.length; i++) {
-      var g = N.spawn(ids[i]);
+    var gs = [], mw = 0, i, g, mm;
+    for (i = 0; i < ids.length; i++) {
+      g = N.spawn(ids[i]);
       if (!g) continue;
-      g.position.set((i - (ids.length - 1) / 2) * 5.5, 0, 0);
+      gs.push(g);
+      mm = measure(g);
+      if (mm.d > mw) mw = mm.d;
+    }
+    var per = mw > 6 ? 6 : 10, gap = Math.min(mw * 1.4 + 1, 11), row;
+    for (i = 0; i < gs.length; i++) {
+      g = gs[i]; row = Math.floor(i / per);
+      g.position.set((i % per - (per - 1) / 2) * gap, -row * 8, 0);
       g.rotation.z = Math.PI;
-      var kind = N.kindOf(ids[i]);
+      var kind = N.kindOf(g.userData.designId);
       if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = poseName || 'idle'; }
       if (kind === 'weapon') g.position.z = .8;
       scene.add(g);
     }
-    frame(Math.max(6, ids.length * 2.2), 0, 0, 1);
+    var all = new THREE.Box3();
+    for (i = 0; i < gs.length; i++) all.expandByObject(gs[i]);
+    var ss = new THREE.Vector3(), cc = new THREE.Vector3();
+    all.getSize(ss); all.getCenter(cc);
+    frame(Math.max(ss.x, ss.y, ss.z), cc.x, cc.y, cc.z);
     cap.textContent = 'CLASS ' + cls.toUpperCase() + ' — ' + ids.length + ' DESIGNS';
   }
   if (want === 'lineup') showLineup();
