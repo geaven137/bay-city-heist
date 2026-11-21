@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Kai Reyes — NEON BAY character preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a0f2e; }
+  canvas { display: block; }
+  #caption {
+    position: fixed; left: 14px; bottom: 12px; z-index: 2;
+    font: 600 13px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    letter-spacing: 0.12em; color: rgba(255, 220, 180, 0.85);
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7); pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div id="caption">KAI REYES &mdash; NEON BAY</div>
+<script src="vendor/three.min.js"></script>
+<script src="src/character.js"></script>
+<script>
+// Standalone preview: Kai Reyes at golden hour. Z-up world — up is +Z,
+// the ground is the XY plane, the character faces +Y. No modules, no
+// import map, no network: everything comes from the vendored Three.js
+// and the character script above.
+
+var scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x8a4a6b, 25, 70);
+
+// Sunset sky: vertical gradient painted on a canvas, wrapped on a big
+// sphere seen from inside. Canvas top (purple) maps to the top of the sky.
+function makeSkyTexture() {
+  var c = document.createElement('canvas');
+  c.width = 4; c.height = 512;
+  var g = c.getContext('2d');
+  var grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0.00, '#2a1650');
+  grad.addColorStop(0.45, '#7a2a6e');
+  grad.addColorStop(0.70, '#d94f6a');
+  grad.addColorStop(0.88, '#ff7e3d');
+  grad.addColorStop(1.00, '#ffd27a');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 4, 512);
+  var tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+var sky = new THREE.Mesh(
+  new THREE.SphereGeometry(60, 24, 16),
+  new THREE.MeshBasicMaterial({ map: makeSkyTexture(), side: THREE.BackSide, fog: false })
+);
+scene.add(sky);
+
+// Camera: third-person, behind and to the side, character fills the frame.
+var camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 200);
+camera.up.set(0, 0, 1);
+camera.position.set(-2.6, -3.6, 2.1);
+camera.lookAt(0, 0.6, 1.05);
+
+// Lights: warm low sun + soft purple ambient.
+var hemi = new THREE.HemisphereLight(0xffd9b0, 0x4a2a4a, 0.55);
+scene.add(hemi);
+
+var sun = new THREE.DirectionalLight(0xffb36b, 1.6);
+sun.position.set(2, 18, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+sun.shadow.camera.left = -8;
+sun.shadow.camera.right = 8;
+sun.shadow.camera.top = 8;
+sun.shadow.camera.bottom = -8;
+sun.shadow.camera.far = 50;
+scene.add(sun);
+
+// Low sun disc on the horizon in the centre gap between the buildings.
+// A circle faces +Z by default; turning it onto -Y makes it face the
+// camera standing behind the character.
+var sunDisc = new THREE.Mesh(
+  new THREE.CircleGeometry(2.4, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd27a, fog: false })
+);
+sunDisc.position.set(0.8, 22, 5.5);
+sunDisc.rotation.x = Math.PI / 2;
+scene.add(sunDisc);
+var sunGlow = new THREE.Mesh(
+  new THREE.CircleGeometry(3.4, 32),
+  new THREE.MeshBasicMaterial({ color: 0xff9a4d, fog: false, transparent: true, opacity: 0.35 })
+);
+sunGlow.position.set(0.8, 22.2, 5.5);
+sunGlow.rotation.x = Math.PI / 2;
+scene.add(sunGlow);
+
+// Ground: a plane already lies in XY with normal +Z — no rotation needed
+// in a Z-up world.
+var ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(60, 60),
+  new THREE.MeshStandardMaterial({ color: 0x54423e, roughness: 0.95, metalness: 0 })
+);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Low-poly buildings flanking the shot, pastel Miami colors, each with a
+// thin darker roof slab. They stand behind the character (+Y), leaving
+// the centre open for the sun.
+function addBuilding(x, y, w, d, h, color, roofColor) {
+  var mat = new THREE.MeshStandardMaterial({ color: color, roughness: 0.8, metalness: 0.05, flatShading: true });
+  var body = new THREE.Mesh(new THREE.BoxGeometry(w, d, h), mat);
+  body.position.set(x, y, h / 2);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  scene.add(body);
+  var roof = new THREE.Mesh(
+    new THREE.BoxGeometry(w + 0.25, d + 0.25, 0.25),
+    new THREE.MeshStandardMaterial({ color: roofColor, roughness: 0.8, metalness: 0.05, flatShading: true })
+  );
+  roof.position.set(x, y, h + 0.12);
+  roof.castShadow = true;
+  scene.add(roof);
+}
+
+addBuilding(-8.0, 7.0, 3.5, 3.0, 5.5, 0xe8a87c, 0x8a5a44);
+addBuilding(-4.5, 8.5, 3.0, 2.8, 7.0, 0xf2c14e, 0x9a7a2a);
+addBuilding(4.5, 8.0, 3.2, 3.0, 6.0, 0x7fb5a3, 0x3f6a5c);
+addBuilding(8.0, 7.0, 3.5, 3.0, 4.5, 0xc98bb9, 0x7a4a6e);
+
+// Simple palms: a cylinder trunk (cylinders point along Y by default, so
+// it is turned onto the Z axis) and six drooping fronds at the top.
+function addPalm(x, y, height) {
+  var trunkMat = new THREE.MeshStandardMaterial({ color: 0x7a5230, roughness: 0.9, metalness: 0, flatShading: true });
+  var trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.14, height, 7), trunkMat);
+  trunk.rotation.x = Math.PI / 2;
+  trunk.position.set(x, y, height / 2);
+  trunk.castShadow = true;
+  scene.add(trunk);
+
+  var frondMat = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.85, metalness: 0, flatShading: true });
+  for (var i = 0; i < 6; i++) {
+    var holder = new THREE.Group();
+    holder.position.set(x, y, height);
+    holder.rotation.z = (i / 6) * Math.PI * 2;
+    var frond = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.3, 0.08), frondMat);
+    frond.position.set(0.75, 0, 0);
+    frond.rotation.y = 0.45; // outer end droops down
+    frond.castShadow = true;
+    holder.add(frond);
+    scene.add(holder);
+  }
+}
+
+addPalm(-3.2, 2.5, 2.6);
+addPalm(3.4, 2.0, 2.9);
+addPalm(-5.5, 4.5, 2.4);
+
+// The character: standing at the origin, facing +Y, rifle raised.
+var rig = createKaiCharacter({ name: 'kai_reyes' });
+scene.add(rig.root);
+
+// Renderer + loop. The aim pose is held every frame.
+var renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+var clock = new THREE.Clock();
+function frame() {
+  requestAnimationFrame(frame);
+  var t = clock.getElapsedTime();
+  updateKaiAnimation(rig, t, 0, true);
+  renderer.render(scene, camera);
+}
+frame();
+
+window.addEventListener('resize', function () {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
