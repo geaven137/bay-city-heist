@@ -61,11 +61,13 @@
     var g = N.spawn(id);
     if (!g) { cap.textContent = 'UNKNOWN DESIGN: ' + id; return; }
     scene.add(g);
+    var bg = ['tower-glass', 'shop-burgers', 'tower-market', 'shop-coffee'];
+    for (var b = 0; b < 4; b++) { var bb = N.spawn(bg[b]); if (bb) { bb.position.set((b - 1.5) * 18, 40, 0); bb.rotation.z = (b % 2 ? .12 : -.1); scene.add(bb); } }
     g.rotation.z = Math.PI; // face the camera (front = -Y)
     var s = g.userData.designSize || 3;
-    if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) figures.push(g);
+    if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) { figures.push(g); g.userData.poseName = poseName || N.get(id).pose || 'idle'; }
     frame(s, 0, 0, s * .35);
-    cap.textContent = g.userData.designName + ' — ' + N.describe(id);
+    cap.textContent = N.describe(id);
   }
   function showLineup() {
     var ids = N.allIds(), cols = 10, gap = 4.5, k;
@@ -102,10 +104,6 @@
     }
     frame(Math.max(6, ids.length * 2.2), 0, 0, 1);
     cap.textContent = 'CLASS ' + cls.toUpperCase() + ' — ' + ids.length + ' DESIGNS';
-  }
-  // Per-figure pose from ?pose= (single view).
-  if (poseName && (want !== 'lineup') && want.indexOf('class-') !== 0) {
-    for (var p = 0; p < figures.length; p++) figures[p].userData.poseName = poseName;
   }
   if (want === 'lineup') showLineup();
   else if (want.indexOf('class-') === 0) showClass(want.slice(6));
