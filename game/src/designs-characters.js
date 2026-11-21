@@ -60,13 +60,13 @@
     j.armL.rotation.z = 0; j.armR.rotation.z = 0; j.torso.rotation.x = 0; j.torso.rotation.z = 0;
     j.head.rotation.z = 0; fig.rotation.x = 0; fig.position.z = 0; j.hips.position.z = .72;
     if (name === 'run') {
-      j.legL.rotation.x = s * .65; j.legR.rotation.x = -s * .65;
-      j.armL.rotation.x = -s * .5; j.armR.rotation.x = s * .5;
-      j.hips.position.z = .72 + Math.abs(c) * .06; j.torso.rotation.x = .12;
+      j.legL.rotation.x = .55 + s * .5; j.legR.rotation.x = -.55 + c * .5;
+      j.armL.rotation.x = -.4 - s * .4; j.armR.rotation.x = .4 + c * .4;
+      j.hips.position.z = .72 + Math.abs(c) * .07; j.torso.rotation.x = .22;
     } else if (name === 'aim') {
       j.armR.rotation.x = Math.PI / 2; j.armL.rotation.x = Math.PI / 2 * .7; j.armL.rotation.z = .5;
       j.torso.rotation.z = -.15; j.legL.rotation.z = .12; j.legR.rotation.z = -.12;
-      if (j.rifle) j.rifle.rotation.x = 0;
+      if (j.rifle) j.rifle.rotation.x = -Math.PI / 2;
     } else if (name === 'flee') {
       j.armL.rotation.x = Math.PI * .85; j.armR.rotation.x = Math.PI * .85;
       j.legL.rotation.x = Math.sin((t || 0) * 1.3) * .7; j.legR.rotation.x = -Math.sin((t || 0) * 1.3) * .7;

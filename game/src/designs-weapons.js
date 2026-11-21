@@ -28,15 +28,22 @@
   }
   function launcher(o) {
     var g = H.grp(), L = o.len;
-    H.put(g, H.cyl(.13, .13, L, OLV, 0, 0, 0, 'y', 12), H.cyl(.02, .13, .3, GUN, 0, L / 2 + .12, 0, 'y', 10), H.box(.08, .2, .14, POLY, 0, -.1, -.14), H.box(.1, .16, .08, STL, 0, L * .2, .16));
+    if (o.dbl) H.put(g, H.cyl(.09, .09, L, GUN, -.09, 0, 0, 'y', 10), H.cyl(.09, .09, L, GUN, .09, 0, 0, 'y', 10));
+    else H.put(g, H.cyl(.13, .13, L, o.tube || OLV, 0, 0, 0, 'y', 12), H.cyl(.02, .13, .3, o.tip || GUN, 0, L / 2 + .12, 0, 'y', 10));
+    H.put(g, H.box(.08, .2, .14, POLY, 0, -.1, -.14), H.box(.1, .16, .08, STL, 0, L * .2, .16));
+    if (o.cone) H.put(g, H.cyl(.14, .03, .35, o.cone, 0, -L / 2 - .15, 0, 'y', 10));
+    if (o.big) H.put(g, H.box(.14, .34, .14, POLY, 0, L * .1, .2));
     dot(g, o.dot || 0xff3020, .14, L * .2, 0);
     return g;
   }
   function smg(o) {
     var g = H.grp(), L = o.len;
-    H.put(g, H.box(.09, L * .55, .12, GUN, 0, 0, .02), H.box(.07, .12, .24, POLY, 0, -.08, -.14), H.box(.06, .18, .08, POLY, 0, -L * .25, 0));
-    if (o.drum) H.put(g, H.cyl(.11, .11, .08, STL, 0, -.05, -.1, 'x', 12));
-    if (o.sup) H.put(g, H.cyl(.04, .04, .22, POLY, 0, L * .38, .02, 'y'));
+    H.put(g, H.box(o.bw || .09, L * .55, .12, o.body || GUN, 0, 0, .02), H.box(.07, .12, .24, POLY, 0, -.08, -.14), H.box(.06, .18, .08, POLY, 0, -L * .25, 0));
+    if (o.drum) H.put(g, H.cyl(.16, .16, .1, STL, 0, -.05, -.12, 'x', 12));
+    if (o.sup) H.put(g, H.cyl(.05, .05, .42, STL, 0, L * .42, .02, 'y'));
+    if (o.rod) H.put(g, H.cyl(.02, .02, .3, STL, 0, -L * .38, .02, 'y'), H.box(.09, .04, .12, POLY, 0, -L * .52, .02));
+    if (o.long) H.put(g, H.cyl(.03, .03, .5, GUN, 0, L * .5, .02, 'y'));
+    if (o.sight) { H.put(g, H.box(.09, .16, .09, POLY, 0, L * .12, .13)); dot(g, 0xff8020, 0, L * .12, .18); }
     dot(g, o.dot || 0x40ff40, .05, L * .15, .09);
     return g;
   }
@@ -68,15 +75,15 @@
     ['s1', 'Sol Longshot', 'sniper', 90, .8, 140, 'sniper', { len: 1.5 }],
     ['s2', 'Bayline DMR-12', 'sniper', 72, 1.4, 120, 'sniper', { len: 1.35, wood: true }],
     ['s3', 'Palmera Anvil AMR', 'sniper', 120, .5, 160, 'sniper', { len: 1.7, dot: 0xff3020 }],
-    ['l1', 'Sol Dart-1', 'launcher', 110, .4, 90, 'launcher', { len: 1.1 }],
-    ['l2', 'Bayline Kometa', 'launcher', 130, .3, 100, 'launcher', { len: 1.25 }],
-    ['l3', 'Palmera Hornet', 'launcher', 95, .8, 70, 'launcher', { len: .95 }],
-    ['l4', 'Sol Hydra-4', 'launcher', 150, .25, 110, 'launcher', { len: 1.4, dot: 0xffc020 }],
-    ['m1', 'Palmera Wasp', 'smg', 18, 8.0, 30, 'smg', { len: .7 }],
-    ['m2', 'Bayline Pipe-9', 'smg', 20, 7.0, 32, 'smg', { len: .75, sup: true }],
-    ['m3', 'Sol Viper-9', 'smg', 22, 7.5, 34, 'smg', { len: .72 }],
-    ['m4', 'Palmera Drummer 71', 'smg', 24, 6.0, 30, 'smg', { len: .8, drum: true }],
-    ['m5', 'Bayline Whisper-9', 'smg', 16, 6.5, 28, 'smg', { len: .7, sup: true, dot: 0x40c0ff }],
+    ['l1', 'Sol Dart-1', 'launcher', 110, .4, 90, 'launcher', { len: 1.1, tip: TAN }],
+    ['l2', 'Bayline Kometa', 'launcher', 130, .3, 100, 'launcher', { len: 1.25, cone: TAN }],
+    ['l3', 'Palmera Hornet', 'launcher', 95, .8, 70, 'launcher', { len: .95, tube: TAN, big: 1 }],
+    ['l4', 'Sol Hydra-4', 'launcher', 150, .25, 110, 'launcher', { len: 1.4, dbl: 1, dot: 0xffc020 }],
+    ['m1', 'Palmera Wasp', 'smg', 18, 8.0, 30, 'smg', { len: .7, rod: 1 }],
+    ['m2', 'Bayline Pipe-9', 'smg', 20, 7.0, 32, 'smg', { len: .75, sup: 1 }],
+    ['m3', 'Sol Viper-9', 'smg', 22, 7.5, 34, 'smg', { len: .72, sight: 1, bw: .13 }],
+    ['m4', 'Palmera Drummer 71', 'smg', 24, 6.0, 30, 'smg', { len: .8, drum: 1 }],
+    ['m5', 'Bayline Whisper-9', 'smg', 16, 6.5, 28, 'smg', { len: .7, long: 1, sight: 1, body: WOOD, dot: 0x40c0ff }],
     ['x1', 'Palmera Pineapple Frag', 'explosive', 80, .5, 14, 'explosive', { shape: 'ball' }],
     ['x2', 'Sol Baton', 'explosive', 45, 1.0, 2, 'explosive', { shape: 'stick' }],
     ['x3', 'Bayline Gecko Charge', 'explosive', 100, .3, 6, 'explosive', { shape: 'pack' }],
