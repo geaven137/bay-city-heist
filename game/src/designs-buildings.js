@@ -83,7 +83,7 @@
     return g;
   }
   function palm(x, y, s) {
-    var g = H.grp(), r = H.h.rng((x * 13 + y * 7) | 0);
+    var g = H.grp(), r = H.rng((x * 13 + y * 7) | 0);
     H.put(g, H.cyl(.1, .18, 3 * s, 0x6a4a28, 0, 0, 1.5 * s, 'z'));
     for (var i = 0; i < 6; i++) {
       var f = H.box(1.7 * s, .12, .04, 0x2e6b34, 0, 0, 3 * s);

@@ -2,7 +2,7 @@
 // Shared builders (car / heli / plane / moto) + per-vehicle params in part 2.
 (function () {
   var N = window.NEON_DESIGNS, H = N.h, T = window.THREE;
-  var STEEL = 0x8a9199, GLASS = 0x10151c, TYRE = 0x0c0d0f, LAMP = 0xfff6c8;
+  var STEEL = 0x8a9199, GLASS = 0x10151c, TYRE = 0x0c0d0f, LAMP = 0xfff6c8, DARK = 0x17181a;
   function ebox(w, d, h, c, e, x, y, z) {
     var m = new T.Mesh(new T.BoxGeometry(w, d, h), H.mat(c, e));
     m.position.set(x || 0, y || 0, z || 0);
