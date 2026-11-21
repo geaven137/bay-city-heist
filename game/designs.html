@@ -53,14 +53,31 @@
   sunDisc.position.set(-55, 35, 12); sunDisc.lookAt(camera.position); scene.add(sunDisc);
   var cap = document.getElementById('cap');
   var figures = [];
-  function frame(size, cx, cy, cz) {
-    camera.position.set(cx + size * 1.05, cy - size * 1.55, cz + size * .8);
-    camera.lookAt(cx, cy, cz);
+  // Frame a Box3 so it fills `fill` of the frame: distance from the box's
+  // true projected extent (same front-right-above angle as before).
+  function frame(b, fill) {
+    var s = new THREE.Vector3(), c = new THREE.Vector3();
+    b.getSize(s); b.getCenter(c);
+    var dir = new THREE.Vector3(1.7, -0.9, .7).normalize();
+    var up = new THREE.Vector3(0, 0, 1);
+    var right = new THREE.Vector3().crossVectors(dir, up).normalize();
+    var upv = new THREE.Vector3().crossVectors(right, dir).normalize();
+    var hw = 0, hh = 0, hd = 0, i, p = new THREE.Vector3();
+    for (i = 0; i < 8; i++) {
+      p.set(i & 1 ? b.max.x : b.min.x, i & 2 ? b.max.y : b.min.y, i & 4 ? b.max.z : b.min.z).sub(c);
+      hw = Math.max(hw, Math.abs(p.dot(right)));
+      hh = Math.max(hh, Math.abs(p.dot(upv)));
+      hd = Math.max(hd, Math.abs(p.dot(dir)));
+    }
+    var tv = Math.tan(21 * Math.PI / 180), th = tv * camera.aspect;
+    var d = Math.max(hw / (th * fill), hh / (tv * fill), hd + .5);
+    camera.position.copy(c).addScaledVector(dir, d);
+    camera.lookAt(c);
   }
   function measure(g) {
     var b = new THREE.Box3().setFromObject(g), s = new THREE.Vector3(), c = new THREE.Vector3();
     b.getSize(s); b.getCenter(c);
-    return { d: Math.max(s.x, s.y, s.z), x: c.x, y: c.y, z: c.z };
+    return { box: b, d: Math.max(s.x, s.y, s.z), x: c.x, y: c.y, z: c.z, sx: s.x, sy: s.y, sz: s.z };
   }
   function showOne(id) {
     var g = N.spawn(id);
@@ -71,7 +88,7 @@
     g.rotation.z = Math.PI; // face the camera (front = -Y)
     var m = measure(g);
     if (g.userData.designId && (N.kindOf(id) === 'character' || N.kindOf(id) === 'npc')) { figures.push(g); g.userData.poseName = poseName || N.get(id).pose || 'idle'; }
-    frame(m.d, m.x, m.y, m.z);
+    frame(m.box, .65);
     cap.textContent = N.describe(id);
   }
   function showLineup() {
@@ -103,12 +120,12 @@
       if (!g) continue;
       gs.push(g);
       mm = measure(g);
-      if (mm.d > mw) mw = mm.d;
+      mw = Math.max(mw, mm.sx, mm.sy);
     }
-    var per = mw > 6 ? 6 : 10, gap = Math.min(mw * 1.4 + 1, 11), row;
+    var per = mw > 6 ? 5 : 6, gap = Math.min(mw * 1.4 + 1, 11), row;
     for (i = 0; i < gs.length; i++) {
       g = gs[i]; row = Math.floor(i / per);
-      g.position.set((i % per - (per - 1) / 2) * gap, -row * 8, 0);
+      g.position.set((i % per - (per - 1) / 2) * gap, -row * gap, 0);
       g.rotation.z = Math.PI;
       var kind = N.kindOf(g.userData.designId);
       if (kind === 'character' || kind === 'npc') { figures.push(g); g.userData.poseName = poseName || 'idle'; }
@@ -117,9 +134,7 @@
     }
     var all = new THREE.Box3();
     for (i = 0; i < gs.length; i++) all.expandByObject(gs[i]);
-    var ss = new THREE.Vector3(), cc = new THREE.Vector3();
-    all.getSize(ss); all.getCenter(cc);
-    frame(Math.max(ss.x, ss.y, ss.z), cc.x, cc.y, cc.z);
+    frame(all, .85);
     cap.textContent = 'CLASS ' + cls.toUpperCase() + ' — ' + ids.length + ' DESIGNS';
   }
   if (want === 'lineup') showLineup();
