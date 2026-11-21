@@ -6,6 +6,12 @@
 import { WANTED, CARS } from './config.js';
 import { witnessedBy } from './pedestrians.js';
 
+// Chase-shot formation (see stageChase): while state.poseT runs, the
+// units hold station ahead of the player — the chase camera looks
+// forward, and pursuit alone can never keep them in frame because
+// policeTop (52) is below the player's top speed (62).
+const POSE = [[60, 30], [95, -32], [160, 28], [210, -30]];
+
 export function raiseHeat(state, amount, x, y) {
   if (state.end) return;
   if (!witnessedBy(state, x, y)) return;
@@ -25,6 +31,7 @@ export function hideBanner(state) {
 }
 
 export function stepCops(state, dt) {
+  if (state.poseT > 0) state.poseT -= dt;
   // Heat fades when the player is out of sight and slow — but
   // never while a unit is close enough to keep the chase on.
   const hidden = state.player.onFoot && state.player.speed < 20;
@@ -64,6 +71,17 @@ export function stepCops(state, dt) {
   // Pursuit steering: each unit chases the player, offset to the side.
   const p = state.player;
   cops.forEach((car, idx) => {
+    if (state.poseT > 0) {
+      const s = POSE[car.slot % POSE.length];
+      const fx = Math.cos(p.angle);
+      const fy = Math.sin(p.angle);
+      car.x = p.x + fx * s[0] - fy * s[1];
+      car.y = p.y + fy * s[0] + fx * s[1];
+      car.angle = p.angle;
+      car.speed = p.car ? p.car.speed : 0;
+      car.targetSpeed = car.speed;
+      return;
+    }
     const side = idx % 2 === 0 ? 1 : -1;
     const tx = p.x + Math.cos(p.angle + Math.PI / 2) * 26 * side;
     const ty = p.y + Math.sin(p.angle + Math.PI / 2) * 26 * side;
@@ -103,11 +121,14 @@ export function stepCops(state, dt) {
     }
     const h = state.heli;
     h.rotor += dt * 22;
-    const hx = p.x + Math.cos(p.angle) * 300 - Math.sin(p.angle) * 50;
-    const hy = p.y + Math.sin(p.angle) * 300 + Math.cos(p.angle) * 50;
-    h.x += (hx - h.x) * Math.min(1, dt * 0.9);
-    h.y += (hy - h.y) * Math.min(1, dt * 0.9);
-    h.z += (115 - h.z) * Math.min(1, dt * 1.2);
+    const hd = state.poseT > 0 ? 220 : 300;
+    const hx = p.x + Math.cos(p.angle) * hd - Math.sin(p.angle) * 50;
+    const hy = p.y + Math.sin(p.angle) * hd + Math.cos(p.angle) * 50;
+    if (state.poseT > 0) { h.x = hx; h.y = hy; h.z = 115; } else {
+      h.x += (hx - h.x) * Math.min(1, dt * 0.9);
+      h.y += (hy - h.y) * Math.min(1, dt * 0.9);
+      h.z += (115 - h.z) * Math.min(1, dt * 1.2);
+    }
     h.angle = Math.atan2(p.y - h.y, p.x - h.x);
   } else if (state.heli) {
     state.heli.z += 60 * dt;

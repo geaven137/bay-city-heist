@@ -63,9 +63,12 @@ function findClearSpot(state, x0) {
   return x;
 }
 
-// Police in formation for the chase frame: two units flank ahead
-// (a roadblock forming, visible in the chase camera) and two
-// behind in pursuit. Never stacked.
+// Police in formation for the chase frame: all four units hold
+// station ahead of the player, in the chase camera's view — the
+// two close ones read clearly, the two further ones give depth.
+// stepCops holds them here while state.poseT runs.
+// without the hold, pursuit alone drops them behind the camera
+// because policeTop is below the player's top speed. Never stacked.
 function lineUpCops(state) {
   const p = state.player;
   const cops = state.cars.filter((c) => c.kind === 'police' && !c.wrecked);
@@ -73,15 +76,13 @@ function lineUpCops(state) {
   const fy = Math.sin(p.angle);
   const px = -fy;
   const py = fx;
-  // [ahead(+)/behind(-) along the road, side offset] per unit.
-  // The flanking pair starts far ahead so that, even as the
-  // pursuit pulls them back toward the player, they are still
-  // in the chase camera's frame at screenshot time.
+  // [ahead along the road, side offset] per unit — same formation
+  // as POSE in police.js, which holds it while the shot is live.
   const spots = [
-    [200, 30],
-    [230, -32],
-    [-80, 26],
-    [-140, -28],
+    [60, 30],
+    [95, -32],
+    [160, 28],
+    [210, -30],
   ];
   cops.forEach((car, i) => {
     const spot = spots[i % spots.length];
@@ -157,13 +158,14 @@ function stageChase(state) {
   state.wanted = 5;
   state.heat = 5;
   state.end = null;
-  const x = findClearSpot(state, 1560);
+  const x = findClearSpot(state, 640);
   putOnBeach(state, x);
   // Four units, then the helicopter.
   state.heli = { x: state.player.x + 300, y: state.player.y + 50, z: 115, angle: 0, rotor: 0 };
   startMission(state, 2);
   state.missionTimer = 145;
   lineUpCops(state);
+  state.poseT = 21;
   sweepLane(state);
   hideBanner(state);
   state.talk = null;
@@ -197,6 +199,7 @@ function stageEnd(state) {
 }
 
 export function stageShot(state, name) {
+  state.poseT = 0;
   if (name === 'start') {
     state.mode = 'title';
     state.money = PLAYER.startMoney;
